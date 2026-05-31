@@ -1,0 +1,6 @@
+discord.py>=2.4.0
+litellm>=1.61.0
+PyYAML>=6.0.2
+aiosqlite>=0.20.0
+psutil>=7.0.0
+httpx>=0.28.0
