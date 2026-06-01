@@ -23,6 +23,11 @@ nvidia:
   model: "nvidia/llama-3.1-nemotron-70b-instruct"
   # Other models: nvidia/nemotron-4-340b-instruct, nvidia/nemotron-mini-4b-instruct
 
+pollinations:
+  api_key: "your_pollinations_api_key_here"
+  model: "openai/gpt-4o-mini"
+  base_url: "https://text.pollinations.ai/openai"
+
 vllm:
   base_url: "http://localhost:8000/v1"
   api_key: ""
@@ -42,6 +47,7 @@ image_generation:
 llm:
   fallback_order:
     - "groq"
+    - "pollinations"
     - "openrouter"
     - "cerebras"
 

@@ -47,6 +47,9 @@ class Settings:
     vllm_base_url: str
     vllm_api_key: str
     vllm_model: str
+    pollinations_api_key: str
+    pollinations_model: str
+    pollinations_base_url: str
     image_gen_provider: str
     image_gen_model: str
     memory_enabled: bool
@@ -130,6 +133,7 @@ def load_settings(path: Path | str = DEFAULT_CONFIG_PATH) -> Settings:
 
     search_cfg = _section(data, "google_search")
     vllm_cfg = _section(data, "vllm")
+    pollinations_cfg = _section(data, "pollinations")
     image_gen_cfg = _section(data, "image_generation")
     memory_cfg = _section(bot_cfg, "memory")
     moderation_cfg = _section(data, "moderation")
@@ -170,6 +174,9 @@ def load_settings(path: Path | str = DEFAULT_CONFIG_PATH) -> Settings:
         vllm_base_url=str(vllm_cfg.get("base_url", "")).strip(),
         vllm_api_key=str(vllm_cfg.get("api_key", "")).strip(),
         vllm_model=str(vllm_cfg.get("model", "")).strip(),
+        pollinations_api_key=str(pollinations_cfg.get("api_key", "")).strip(),
+        pollinations_model=str(pollinations_cfg.get("model", "openai/gpt-4o-mini")).strip(),
+        pollinations_base_url=str(pollinations_cfg.get("base_url", "https://text.pollinations.ai/openai")).strip(),
         image_gen_provider=str(image_gen_cfg.get("provider", "openrouter")).strip(),
         image_gen_model=str(image_gen_cfg.get("model", "stabilityai/stable-diffusion-3.5-large-turbo")).strip(),
         memory_enabled=bool(memory_cfg.get("enabled", True)),

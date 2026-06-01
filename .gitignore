@@ -1,7 +1,29 @@
+# Config
 config.yaml
 .env
-nexoai.db
+
+# Database
+*.db
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+dist/
+build/
 .venv/
 venv/
+*.so
+.python-version
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

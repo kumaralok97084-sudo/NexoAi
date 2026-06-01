@@ -30,6 +30,9 @@ class LLMClient:
         cerebras_model: str = "cerebras/llama3.1-8b",
         nvidia_api_key: str = "",
         nvidia_model: str = "nvidia/llama-3.1-nemotron-70b-instruct",
+        pollinations_api_key: str = "",
+        pollinations_model: str = "openai/gpt-4o-mini",
+        pollinations_base_url: str = "",
         vllm_base_url: str = "",
         vllm_api_key: str = "",
         vllm_model: str = "",
@@ -51,6 +54,11 @@ class LLMClient:
             "nvidia": {
                 "api_key": nvidia_api_key,
                 "model": nvidia_model,
+            },
+            "pollinations": {
+                "api_key": pollinations_api_key,
+                "model": pollinations_model,
+                "api_base": pollinations_base_url,
             },
             "vllm": {
                 "api_key": vllm_api_key,
@@ -233,6 +241,7 @@ class LLMClient:
             "groq": "GROQ_API_KEY",
             "cerebras": "CEREBRAS_API_KEY",
             "nvidia": "NVIDIA_API_KEY",
+            "pollinations": "OPENAI_API_KEY",
             "vllm": "VLLM_API_KEY",
         }
         return mapping.get(provider_name, f"{provider_name.upper()}_API_KEY")
