@@ -547,22 +547,6 @@ class ModerationCog(commands.Cog):
         deleted = await interaction.channel.purge(limit=limit, check=check)
         await interaction.followup.send(f"Deleted {len(deleted)} messages from {member}.", ephemeral=True)
 
-    @app_commands.command(name="mute", description="Mute (timeout) a member.")
-    @app_commands.checks.has_permissions(moderate_members=True)
-    async def mute(
-        self,
-        interaction: discord.Interaction,
-        member: discord.Member,
-        minutes: app_commands.Range[int, 1, 10080] = 10,
-        reason: str = "No reason provided",
-    ) -> None:
-        until = discord.utils.utcnow() + timedelta(minutes=minutes)
-        await member.timeout(until, reason=reason)
-        await self.bot.db.add_moderation_log(
-            interaction.guild_id, member.id, "mute", reason, f"Duration: {minutes}min",
-        )
-        await interaction.response.send_message(f"{member.mention} has been muted for {minutes} minutes.")
-
     @app_commands.command(name="nick", description="Change a member's nickname.")
     @app_commands.checks.has_permissions(manage_nicknames=True)
     async def nick(
@@ -597,6 +581,68 @@ class ModerationCog(commands.Cog):
         await self.bot.db.add_moderation_log(interaction.guild.id, member.id, "softban", reason, "")
         await interaction.response.send_message(f"{member} has been softbanned. Reason: {reason}")
 
+    # ---- Mod Config Group ----
+
+    modconfig = app_commands.Group(name="modconfig", description="Toggle moderation features on/off.")
+
+    @modconfig.command(name="antispam", description="Toggle anti-spam protection.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def mc_antispam(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        await self.bot.db.upsert_guild_setting(interaction.guild.id, "antispam_enabled", str(int(enabled)))
+        await interaction.response.send_message(f"Anti-spam {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+
+    @modconfig.command(name="raidmode", description="Toggle raid protection mode.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def mc_raidmode(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        await self.bot.db.upsert_guild_setting(interaction.guild.id, "raid_mode", str(int(enabled)))
+        await interaction.response.send_message(f"Raid mode {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+
+    @modconfig.command(name="filter", description="Toggle word filter.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def mc_filter(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        await self.bot.db.upsert_guild_setting(interaction.guild.id, "filter_enabled", str(int(enabled)))
+        await interaction.response.send_message(f"Word filter {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+
+    @modconfig.command(name="linkblock", description="Toggle link blocking.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def mc_linkblock(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        await self.bot.db.upsert_guild_setting(interaction.guild.id, "linkblock_enabled", str(int(enabled)))
+        await interaction.response.send_message(f"Link blocking {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+
+    @modconfig.command(name="logging", description="Toggle moderation logging.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def mc_logging(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        await self.bot.db.upsert_guild_setting(interaction.guild.id, "mod_logging_enabled", str(int(enabled)))
+        await interaction.response.send_message(f"Mod logging {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+
+    @modconfig.command(name="view", description="View all moderation config settings.")
+    @app_commands.checks.has_permissions(moderate_members=True)
+    async def mc_view(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Server only.", ephemeral=True); return
+        gid = interaction.guild.id
+        settings = {
+            "Anti-Spam": await self.bot.db.get_guild_setting(gid, "antispam_enabled"),
+            "Raid Mode": await self.bot.db.get_guild_setting(gid, "raid_mode"),
+            "Word Filter": await self.bot.db.get_guild_setting(gid, "filter_enabled"),
+            "Link Blocking": await self.bot.db.get_guild_setting(gid, "linkblock_enabled"),
+            "Mod Logging": await self.bot.db.get_guild_setting(gid, "mod_logging_enabled"),
+        }
+        embed = discord.Embed(title="Moderation Configuration", color=discord.Color.orange())
+        for name, val in settings.items():
+            embed.add_field(name=name, value="✅ On" if val == "1" else "❌ Off", inline=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     # ---- Event Listeners ----
 
     @commands.Cog.listener()
@@ -622,7 +668,6 @@ class ModerationCog(commands.Cog):
     @ban.error
     @unban.error
     @clean.error
-    @mute.error
     @nick.error
     @softban.error
     async def moderation_error(

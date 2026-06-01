@@ -30,11 +30,16 @@ ROB_TAKE_MAX = 0.25
 ROB_FAIL_FINE = 50
 
 JOBS = [
-    (f"{JOB_CODER}", "programmer",f"{HELP_FUN}", 90), ("🎨", "designer", 40, 80),
-    (f"{WORK_BRIEF}", "consultant",f"{JOB_TEACHER}", 100), ("📚", "teacher", 30, 60),
-    (f"{JOB_MINER}", "miner", f"{JOB_FISHER}" 70), ("🎣", "fisher", 25, 55),
-    (f"{JOB_FARMER}", "farmer"f"{JOB_CHEF}"0, 50), ("🍳", "chef", 30, 65),
-    (f"{JOB_DOCTOR}", "doctor",f"{JOB_ENGINEER}", 120), ("🔧", "engineer", 55, 95),
+    (JOB_CODER, "programmer", 40, 90),
+    (HELP_FUN, "designer", 40, 80),
+    (WORK_BRIEF, "consultant", 30, 100),
+    (JOB_TEACHER, "teacher", 30, 60),
+    (JOB_MINER, "miner", 25, 70),
+    (JOB_FISHER, "fisher", 25, 55),
+    (JOB_FARMER, "farmer", 0, 50),
+    (JOB_CHEF, "chef", 30, 65),
+    (JOB_DOCTOR, "doctor", 55, 120),
+    (JOB_ENGINEER, "engineer", 55, 95),
 ]
 
 CRIMES = [
@@ -187,7 +192,7 @@ class EconomyCog(commands.Cog):
         for i, (uid, total) in enumerate(rows, 1):
             user = self.bot.get_user(uid)
             name = user.display_name if user else "Unknown"
-            medal = {1: f"{GOLD}f"{SILVEf"{BRONZE}"2: "🥈", 3: "🥉"}.get(i, f"{i}.")
+            medal = {1: GOLD, 2: SILVER, 3: BRONZE}.get(i, f"{i}.")
             lines.append(f"{medal} **{name}** — {SLOT_DIAMOND} {total}")
         embed = discord.Embed(title=f"{GIVEAWAY_WIN} Richest Users", description="\n".join(lines), color=discord.Color.gold())
         await interaction.response.send_message(embed=embed)
@@ -517,26 +522,82 @@ class EconomyCog(commands.Cog):
         embed = discord.Embed(title=f"{interaction.user.display_name}'s Inventory", description="\n".join(lines), color=discord.Color.green())
         await interaction.response.send_message(embed=embed)
 
-    # ── Leaderboard ──
+    # ── Weekly ──
 
-    @app_commands.command(name="leaderboard", description="Show the richest users.")
-    async def leaderboard(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="weekly", description="Claim your weekly bonus.")
+    async def weekly(self, interaction: discord.Interaction) -> None:
+        uid = interaction.user.id
+        now = datetime.now(timezone.utc)
+        d = await self._read(uid)
+        last = d.get("last_weekly", "")
+        if last:
+            try:
+                delta = now - datetime.fromisoformat(last)
+                if delta.days < 7:
+                    remaining = 7 - delta.days
+                    await interaction.response.send_message(f"{COOLDOWN} Come back in **{remaining}d** for your weekly.", ephemeral=True)
+                    return
+            except ValueError:
+                pass
         async with aiosqlite.connect(self.bot.db.db_path) as db:
-            async with db.execute(
-                "SELECT user_id, balance + bank AS total FROM economy ORDER BY total DESC LIMIT 10"
-            ) as cursor:
-                rows = await cursor.fetchall()
-        if not rows:
-            await interaction.response.send_message("No economy data yet.", ephemeral=True)
-            return
-        lines = []
-        for i, (uid, total) in enumerate(rows, 1):
-            user = self.bot.get_user(uid)
-            name = user.display_name if user else "Unknown"
-            medal = {1: f"{GOLD}f"{SILVEf"{BRONZE}"2: "🥈", 3: "🥉"}.get(i, f"{i}.")
-            lines.append(f"{medal} **{name}** — {SLOT_DIAMOND} {total}")
-        embed = discord.Embed(title=f"{GIVEAWAY_WIN} Richest Users", description="\n".join(lines), color=discord.Color.gold())
-        await interaction.response.send_message(embed=embed)
+            await db.execute(
+                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ?, last_weekly = ? WHERE user_id = ?",
+                (DAILY_AMOUNT * 5, DAILY_AMOUNT * 5, now.isoformat(), uid),
+            )
+            await db.commit()
+        await interaction.response.send_message(f"{DAILY} Weekly bonus: **{DAILY_AMOUNT * 5}** coins!")
+
+    # ── Search ──
+
+    SEARCH_PLACES = ["the couch cushions", "the trash bin", "an old jacket", "the parking lot", "a random drawer", "the garden"]
+
+    @app_commands.command(name="search", description="Search for coins in random places.")
+    async def search(self, interaction: discord.Interaction) -> None:
+        uid = interaction.user.id
+        now = datetime.now(timezone.utc)
+        d = await self._read(uid)
+        last = d.get("last_search", "")
+        if last:
+            try:
+                delta = now - datetime.fromisoformat(last)
+                if delta.total_seconds() < 600:
+                    remain = int(600 - delta.total_seconds())
+                    await interaction.response.send_message(f"{COOLDOWN} You're tired of searching. Wait **{remain}s**.", ephemeral=True)
+                    return
+            except ValueError:
+                pass
+        place = random.choice(SEARCH_PLACES)
+        found = random.randint(5, 50)
+        async with aiosqlite.connect(self.bot.db.db_path) as db:
+            await db.execute(
+                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ?, last_search = ? WHERE user_id = ?",
+                (found, found, now.isoformat(), uid),
+            )
+            await db.commit()
+        await interaction.response.send_message(f"{WORK_BRIEF} You searched **{place}** and found **{found}** coins!")
+
+    # ── Gift ──
+
+    @app_commands.command(name="gift", description="Gift coins to another user.")
+    async def gift(self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, 100000]) -> None:
+        if user.id == interaction.user.id:
+            await interaction.response.send_message("You can't gift yourself.", ephemeral=True); return
+        async with aiosqlite.connect(self.bot.db.db_path) as db:
+            await db.execute("BEGIN")
+            cursor = await db.execute(
+                "UPDATE economy SET balance = balance - ?, total_spent = total_spent + ? WHERE user_id = ? AND balance >= ?",
+                (amount, amount, interaction.user.id, amount),
+            )
+            if cursor.rowcount == 0:
+                await db.execute("ROLLBACK")
+                await interaction.response.send_message("Not enough coins.", ephemeral=True); return
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user.id,))
+            await db.execute(
+                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?",
+                (amount, amount, user.id),
+            )
+            await db.commit()
+        await interaction.response.send_message(f"{WIN} Gifted **{amount}** coins to {user.mention}!")
 
     # ── Shop ──
 

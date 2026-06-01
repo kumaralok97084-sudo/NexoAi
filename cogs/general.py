@@ -70,7 +70,7 @@ class GeneralCog(commands.Cog):
         embed.add_field(
             name="🤖 AI & Memory",
             value=(
-                "`/ai`, `/websearch`, `/imagine`, `/imagemodels`, `/summarize`, `/translate`, "
+                "`/ai`, `/imagine`, `/imagemodels`, `/summarize`, `/translate`, "
                 "`/rewrite`, `/code`, `/codereview`, `/debug`, `/refactor`, `/explaincode`, "
                 "`/train`, `/knowledge`, `/thread`, `/forget`, `/context`, `/custom`, "
                 "`/setpersona`, `/agent`, `/agents`, `/clearhistory`, "
@@ -81,9 +81,11 @@ class GeneralCog(commands.Cog):
         embed.add_field(
             name="🛡️ Moderation",
             value=(
-                "`/purge`, `/timeout`, `/untimeout`, `/mute`, `/warn`, `/unwarn`, `/warns`, `/modlogs`, "
+                "`/purge`, `/timeout`, `/untimeout`, `/warn`, `/unwarn`, `/warns`, `/modlogs`, "
                 "`/kick`, `/ban`, `/unban`, `/softban`, `/slowmode`, `/lock`, `/unlock`, `/lockdown`, `/unlockall`, "
-                "`/clean`, `/nick`, `/filter`, `/filtermode`, `/raidmode`, `/antispam`, `/modsettings`"
+                "`/clean`, `/nick`, `/filter`, `/filtermode`, `/raidmode`, `/antispam`, `/modsettings`, "
+                "`/modconfig antispam`, `/modconfig raidmode`, `/modconfig filter`, "
+                "`/modconfig linkblock`, `/modconfig logging`, `/modconfig view`"
             ),
             inline=False,
         )
@@ -97,7 +99,22 @@ class GeneralCog(commands.Cog):
         )
         embed.add_field(
             name="🔧 Utility",
-            value="`/poll`, `/remind`, `/timer`, `/note`, `/notes`, `/rolemenu`, `/define`, `/weather`, `/color`",
+            value="`/poll`, `/remind`, `/timer`, `/note`, `/notes`, `/rolemenu`, `/define`, `/weather`, `/color`, `/afk`, `/embed`",
+            inline=False,
+        )
+        embed.add_field(
+            name="💰 Economy",
+            value="`/bal`, `/baltop`, `/daily`, `/weekly`, `/work`, `/beg`, `/crime`, `/gamble`, `/rob`, `/pay`, `/gift`, `/deposit`, `/withdraw`, `/search`, `/inventory`, `/shop`",
+            inline=False,
+        )
+        embed.add_field(
+            name="🎮 Games & Fun",
+            value="`/rps`, `/coinflip`, `/roll`, `/8ball`, `/slot`, `/trivia`, `/guess`, `/cat`, `/dog`, `/fox`, `/avatar`, `/servericon`, `/meme`",
+            inline=False,
+        )
+        embed.add_field(
+            name="🎵 Music",
+            value="`/play`, `/skip`, `/queue`, `/stop`, `/pause`, `/resume`, `/nowplaying`, `/join`, `/leave`",
             inline=False,
         )
         embed.add_field(
@@ -110,7 +127,7 @@ class GeneralCog(commands.Cog):
         )
         embed.add_field(
             name="ℹ️ General",
-            value="`/ping`, `/uptime`, `/serverinfo`, `/membercount`, `/userinfo`, `/ticket`",
+            value="`/ping`, `/uptime`, `/serverinfo`, `/userinfo`, `/ticket`",
             inline=False,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -170,18 +187,6 @@ class GeneralCog(commands.Cog):
                 embed.add_field(name="Nickname", value=member.nick or "None", inline=True)
         embed.set_thumbnail(url=target.display_avatar.url)
         await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="membercount", description="Show total, human, and bot member counts.")
-    async def member_count(self, interaction: discord.Interaction) -> None:
-        guild = interaction.guild
-        if not guild:
-            await interaction.response.send_message("Use this in a server.", ephemeral=True)
-            return
-        humans = sum(1 for m in guild.members if not m.bot)
-        bots = sum(1 for m in guild.members if m.bot)
-        await interaction.response.send_message(
-            f"Members: **{guild.member_count}** | Humans: **{humans}** | Bots: **{bots}**"
-        )
 
     @app_commands.command(name="ticket", description="Create a support ticket.")
     async def ticket(self, interaction: discord.Interaction) -> None:

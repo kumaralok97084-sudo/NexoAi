@@ -129,17 +129,6 @@ class AICog(commands.Cog):
     async def ai(self, interaction: discord.Interaction, prompt: str) -> None:
         await self._run_ai(interaction, prompt)
 
-    @app_commands.command(name="websearch", description="Search Google and get AI answer.")
-    async def websearch(self, interaction: discord.Interaction, query: str) -> None:
-        await interaction.response.defer(thinking=True)
-        search_text = await self.bot.search.search(query)  # type: ignore[attr-defined]
-        await self._run_ai(
-            interaction,
-            query,
-            instruction="Answer based on the provided search results. Cite sources.",
-            search_context=search_text,
-        )
-
     IMAGE_SIZE_CHOICES = [
         app_commands.Choice(name="Square 1024x1024", value="1024x1024"),
         app_commands.Choice(name="Wide 1792x1024", value="1792x1024"),

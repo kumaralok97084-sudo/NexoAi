@@ -75,11 +75,18 @@ async def on_ready() -> None:
 @bot.event
 async def setup_hook() -> None:
     await bot.db.init()  # type: ignore[attr-defined]
-    for extension in ("cogs.ai", "cogs.admin", "cogs.general", "cogs.moderation", "cogs.hosting", "cogs.utility"):
+    for extension in (
+        "cogs.ai", "cogs.admin", "cogs.general", "cogs.moderation", "cogs.hosting", "cogs.utility",
+        "cogs.economy", "cogs.games", "cogs.leveling", "cogs.music", "cogs.fun",
+        "cogs.utility_ext", "cogs.moderation_ext", "cogs.server_mgmt", "cogs.server_stats",
+        "cogs.link_mod", "cogs.tags", "cogs.embed_builder",
+    ):
         await bot.load_extension(extension)
         logging.info("Loaded extension: %s", extension)
     if not cleanup_old_data.is_running():
         cleanup_old_data.start()
+    if not check_reminders.is_running():
+        check_reminders.start()
 
 
 @bot.event

@@ -21,7 +21,9 @@ class Database:
                     ai_channel_id INTEGER,
                     auto_reply_enabled INTEGER DEFAULT 0,
                     support_channel_id INTEGER,
-                    system_prompt TEXT
+                    system_prompt TEXT,
+                    xp_min INTEGER DEFAULT 5,
+                    xp_max INTEGER DEFAULT 25
                 )
                 """
             )
@@ -186,6 +188,79 @@ class Database:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""",
             ]:
                 await db.execute(table_sql)
+
+            # ── Missing tables for loaded cogs ──
+            for extra_sql in [
+                """CREATE TABLE IF NOT EXISTS economy (
+                    user_id INTEGER PRIMARY KEY, balance INTEGER DEFAULT 0,
+                    bank INTEGER DEFAULT 0, daily_streak INTEGER DEFAULT 0,
+                    last_daily TEXT DEFAULT '', last_work TEXT DEFAULT '',
+                    last_crime TEXT DEFAULT '', last_beg TEXT DEFAULT '',
+                    last_rob TEXT DEFAULT '', total_earned INTEGER DEFAULT 0,
+                    total_spent INTEGER DEFAULT 0, last_weekly TEXT DEFAULT '',
+                    last_search TEXT DEFAULT '')""",
+                """CREATE TABLE IF NOT EXISTS shop_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    name TEXT NOT NULL, description TEXT DEFAULT '',
+                    price INTEGER NOT NULL, role_id TEXT)""",
+                """CREATE TABLE IF NOT EXISTS inventory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                    item_id INTEGER NOT NULL, purchased_at DATETIME DEFAULT CURRENT_TIMESTAMP)""",
+                """CREATE TABLE IF NOT EXISTS afk_status (
+                    user_id INTEGER NOT NULL, guild_id INTEGER NOT NULL,
+                    reason TEXT DEFAULT '', since DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, guild_id))""",
+                """CREATE TABLE IF NOT EXISTS user_xp (
+                    user_id INTEGER NOT NULL, guild_id INTEGER NOT NULL,
+                    xp INTEGER DEFAULT 0, level INTEGER DEFAULT 1,
+                    last_xp_time DATETIME, PRIMARY KEY (user_id, guild_id))""",
+                """CREATE TABLE IF NOT EXISTS level_rewards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    level INTEGER NOT NULL, role_id INTEGER NOT NULL)""",
+                """CREATE TABLE IF NOT EXISTS link_filters (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    domain TEXT NOT NULL, action TEXT DEFAULT 'block')""",
+                """CREATE TABLE IF NOT EXISTS link_whitelist (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    entity_id INTEGER NOT NULL, entity_type TEXT NOT NULL)""",
+                """CREATE TABLE IF NOT EXISTS message_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    channel_id INTEGER, user_id INTEGER,
+                    action TEXT, content TEXT DEFAULT '',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""",
+                """CREATE TABLE IF NOT EXISTS temp_bans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL, ends_at DATETIME NOT NULL,
+                    reason TEXT DEFAULT '')""",
+                """CREATE TABLE IF NOT EXISTS giveaways (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    channel_id INTEGER, message_id INTEGER,
+                    prize TEXT NOT NULL, winners INTEGER DEFAULT 1,
+                    ends_at DATETIME NOT NULL, host_id INTEGER,
+                    ended INTEGER DEFAULT 0)""",
+                """CREATE TABLE IF NOT EXISTS giveaway_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL)""",
+                """CREATE TABLE IF NOT EXISTS suggestions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    channel_id INTEGER, message_id INTEGER,
+                    author_id INTEGER, content TEXT)""",
+                """CREATE TABLE IF NOT EXISTS custom_commands (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    name TEXT NOT NULL, response TEXT NOT NULL)""",
+                """CREATE TABLE IF NOT EXISTS server_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    stat_type TEXT NOT NULL, channel_id INTEGER NOT NULL)""",
+                """CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    name TEXT NOT NULL, content TEXT NOT NULL,
+                    owner_id INTEGER NOT NULL, uses INTEGER DEFAULT 0)""",
+                """CREATE TABLE IF NOT EXISTS music_queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                    title TEXT, url TEXT, requester_id INTEGER,
+                    position INTEGER DEFAULT 0)""",
+            ]:
+                await db.execute(extra_sql)
 
             # Backward-compatible migration for older databases.
             for col in ("agent_model", "welcome_channel", "welcome_message", "leave_channel", "leave_message", "autorole_id",

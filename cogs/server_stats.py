@@ -76,8 +76,8 @@ class ServerStatsCog(commands.Cog):
     @staticmethod
     def _format_name(stat_type: str, value: int) -> str:
         emoji = {
-            "members": f"{STAT_MEMBERSf"{STAT_HUMANf"{STAT_BOTS}" "humans": "👤", "bots": "🤖",
-            "channels": f"{STAT_CHANNEf"{STAT_ROLES}"f"{ONLINE_DOT}""roles": "🎭", "online": "🟢",
+            "members": STAT_MEMBERS, "humans": STAT_HUMANS, "bots": STAT_BOTS,
+            "channels": STAT_CHANNELS, "roles": STAT_ROLES, "online": ONLINE_DOT,
         }
         labels = {
             "members": "Members", "humans": "Humans", "bots": "Bots",

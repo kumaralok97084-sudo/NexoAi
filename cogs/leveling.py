@@ -152,7 +152,7 @@ class LevelingCog(commands.Cog):
         for i, (uid, level, xp) in enumerate(rows, 1):
             user = self.bot.get_user(uid)
             name = user.display_name if user else f"Unknown ({uid})"
-            medal = {1: f"{GOLD}f"{SILVEf"{BRONZE}"2: "🥈", 3: "🥉"}.get(i, f"#{i}")
+            medal = {1: GOLD, 2: SILVER, 3: BRONZE}.get(i, f"#{i}")
             lines.append(f"{medal} **{name}** — Lv.{level} ({xp} XP)")
 
         embed = discord.Embed(title=f"{GIVEAWAY_WIN} Level Leaderboard", description="\n".join(lines), color=discord.Color.gold())

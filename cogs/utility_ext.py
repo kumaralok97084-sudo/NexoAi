@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import aiosqlite
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-
-from cogs.emojis import AFK_ICON, BIRTHDAY_CAKE, CHECK_OK
+from cogs.emojis import AFK_ICON, CHECK_OK
 
 class UtilityExtCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -28,7 +25,7 @@ class UtilityExtCog(commands.Cog):
             )
             await db.commit()
 
-        msg = f"{CHECK_OK} Set AFK. Reason: {reason}" if reaf"{CHECK_OK} Set AFK."Set AFK."
+        msg = f"{CHECK_OK} Set AFK. Reason: {reason}" if reason else f"{CHECK_OK} Set AFK."
         await interaction.response.send_message(msg, ephemeral=True)
 
     @commands.Cog.listener()
@@ -74,44 +71,6 @@ class UtilityExtCog(commands.Cog):
                     pass
 
     # ---- Birthday ----
-
-    @app_commands.command(name="setbirthday", description="Set your birthday.")
-    @app_commands.describe(month="Month (1-12)", day="Day (1-31)")
-    async def set_birthday(self, interaction: discord.Interaction, month: app_commands.Range[int, 1, 12], day: app_commands.Range[int, 1, 31]) -> None:
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO birthdays (user_id, month, day) VALUES (?, ?, ?)",
-                (interaction.user.id, month, day),
-            )
-            await db.commit()
-        await interaction.response.send_message(f"{CHECK_OK} Birthday set to **{month}/{day}**.", ephemeral=True)
-
-    @app_commands.command(name="birthdays", description="Show upcoming birthdays this month.")
-    async def birthdays(self, interaction: discord.Interaction) -> None:
-        now = datetime.now(timezone.utc)
-        month = now.month
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            async with db.execute(
-                "SELECT user_id, day FROM birthdays WHERE month = ? ORDER BY day", (month,)
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        if not rows:
-            await interaction.response.send_message("No birthdays this month.", ephemeral=True)
-            return
-
-        lines = []
-        for uid, day in rows:
-            user = self.bot.get_user(uid)
-            name = user.display_name if user else f"Unknown ({uid})"
-            lines.append(f"**{name}** — {month}/{day}")
-        embed = discord.Embed(
-            title=f"{BIRTHDAY_CAKE} Birthdays This Month ({month})",
-            description="\n".join(lines),
-            color=discord.Color.pink(),
-        )
-        await interaction.response.send_message(embed=embed)
-
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(UtilityExtCog(bot))
