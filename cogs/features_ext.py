@@ -76,48 +76,6 @@ class FeaturesExtCog(commands.Cog):
     #  ECONOMY EXTENSIONS
     # ══════════════════════════════════════════════════════════════
 
-    invest_cooldowns: dict[int, float] = {}
-
-    @app_commands.command(name="invest", description="Invest coins for a potential return.")
-    async def cmd_invest(self, interaction: discord.Interaction, amount: int) -> None:
-        if amount < 10:
-            await interaction.response.send_message(f"{CROSS_NO} Minimum invest is 10 coins.", ephemeral=True)
-            return
-        uid = interaction.user.id
-        now = time()
-        last = self.invest_cooldowns.get(uid, 0)
-        if now - last < 3600:
-            remaining = int(3600 - (now - last))
-            await interaction.response.send_message(f"{CROSS_NO} You can invest again in {remaining // 60}m {remaining % 60}s.", ephemeral=True)
-            return
-        bal = await self._get_balance(uid)
-        if amount > bal:
-            await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
-            return
-        await self._remove_balance(uid, amount)
-        r = random.random()
-        if r < 0.05:
-            ret = 0
-            msg = "Your investment failed completely. You lost everything."
-        elif r < 0.35:
-            ret = int(amount * random.uniform(0.1, 0.5))
-            msg = "Your investment performed poorly."
-        elif r < 0.75:
-            ret = int(amount * random.uniform(0.6, 1.0))
-            msg = "Your investment broke even."
-        elif r < 0.92:
-            ret = int(amount * random.uniform(1.1, 2.0))
-            msg = "Your investment did well!"
-        else:
-            ret = int(amount * random.uniform(2.0, 5.0))
-            msg = "Your investment was a huge success!"
-        if ret > 0:
-            await self._add_balance(uid, ret)
-        self.invest_cooldowns[uid] = now
-        await interaction.response.send_message(
-            f"{INVEST} You invested **{amount}** coins.\n{msg} You got back **{ret}** coins."
-        )
-
     @app_commands.command(name="horse", description="Bet on a horse race!")
     @app_commands.describe(horse_number="Which horse? (1-5)", bet="Amount to bet")
     async def cmd_horse(self, interaction: discord.Interaction, horse_number: int, bet: int) -> None:
@@ -348,16 +306,6 @@ class FeaturesExtCog(commands.Cog):
             return await self.bot.llm.chat(messages, max_tokens=500)
         except Exception:
             return "AI service unavailable."
-
-    @app_commands.command(name="translate", description="Translate text to a target language.")
-    @app_commands.describe(text="Text to translate", target_language="Target language (e.g. Spanish, French, Japanese)")
-    async def cmd_translate(self, interaction: discord.Interaction, text: str, target_language: str = "English") -> None:
-        await interaction.response.defer()
-        result = await self._ai_quick(f"Translate this to {target_language}. ONLY output the translation, nothing else:\n\n{text}")
-        embed = discord.Embed(title=f"{TRANSLATE} Translation ({target_language})", color=discord.Color.blue())
-        embed.add_field(name="Original", value=text[:1000], inline=False)
-        embed.add_field(name="Translation", value=result[:1000], inline=False)
-        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="tldr", description="Summarize a long text.")
     @app_commands.describe(text="Text to summarize")
@@ -761,29 +709,6 @@ class FeaturesExtCog(commands.Cog):
             await interaction.followup.send(embed=embed)
         except Exception:
             await interaction.followup.send(f"{CROSS_NO} Search failed.")
-
-    @app_commands.command(name="weather", description="Get weather for a city!")
-    @app_commands.describe(city="City name")
-    async def cmd_weather(self, interaction: discord.Interaction, city: str) -> None:
-        await interaction.response.defer()
-        try:
-            async with aiohttp.ClientSession() as s:
-                async with s.get(f"https://wttr.in/{city}?format=%C|%t|%h|%w|%p") as r:
-                    if r.status != 200:
-                        await interaction.followup.send(f"{CROSS_NO} Weather lookup failed.")
-                        return
-                    text = await r.text()
-            parts = text.strip().split("|")
-            condition, temp, humidity, wind, precip = parts if len(parts) >= 5 else [text.strip(), "", "", "", ""]
-            embed = discord.Embed(title=f"{TIMEZONE} Weather: {city.title()}", color=discord.Color.blue())
-            embed.add_field(name="Condition", value=condition or "N/A")
-            embed.add_field(name="Temperature", value=temp or "N/A")
-            embed.add_field(name="Humidity", value=humidity or "N/A")
-            embed.add_field(name="Wind", value=wind or "N/A")
-            embed.add_field(name="Precipitation", value=precip or "N/A")
-            await interaction.followup.send(embed=embed)
-        except Exception:
-            await interaction.followup.send(f"{CROSS_NO} Weather lookup failed.")
 
     @app_commands.command(name="news", description="Get latest news headlines!")
     @app_commands.describe(topic="News topic/category")
@@ -1309,31 +1234,6 @@ class FeaturesExtCog(commands.Cog):
             embed.add_field(name="Connected Users", value=", ".join(m.display_name for m in members[:20]), inline=False)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="serverinfo", description="View server information!")
-    async def cmd_serverinfo(self, interaction: discord.Interaction) -> None:
-        if not isinstance(interaction.guild, discord.Guild):
-            await interaction.response.send_message(f"{CROSS_NO} Use in a server.", ephemeral=True)
-            return
-        g = interaction.guild
-        embed = discord.Embed(title=f"{BUTTON} {g.name}", color=g.owner.color if g.owner and g.owner.color.value else discord.Color.blue())
-        embed.set_thumbnail(url=g.icon.url if g.icon else None)
-        embed.add_field(name="Owner", value=g.owner.mention if g.owner else "N/A")
-        embed.add_field(name="Members", value=f"{g.member_count}")
-        embed.add_field(name="Channels", value=f"{len(g.channels)}")
-        embed.add_field(name="Roles", value=f"{len(g.roles)}")
-        embed.add_field(name="Boosts", value=f"{g.premium_subscription_count} (Level {g.premium_tier})")
-        embed.add_field(name="Created", value=g.created_at.strftime("%b %d, %Y") if g.created_at else "N/A")
-        embed.set_footer(text=f"ID: {g.id}")
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="avatar", description="View a user's avatar!")
-    @app_commands.describe(user="User whose avatar to view")
-    async def cmd_avatar(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
-        user = user or interaction.user
-        embed = discord.Embed(title=f"{BUTTON} {user.display_name}'s Avatar", color=user.color if user.color.value else discord.Color.blue())
-        embed.set_image(url=user.display_avatar.url)
-        await interaction.response.send_message(embed=embed)
-
     @app_commands.command(name="banner", description="View a user's banner!")
     @app_commands.describe(user="User whose banner to view")
     async def cmd_banner(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
@@ -1344,19 +1244,6 @@ class FeaturesExtCog(commands.Cog):
             embed.set_image(url=fetched.banner.url)
         else:
             embed.description = "No banner set."
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="color", description="View a color / role color!")
-    @app_commands.describe(color="Hex color (e.g. #FF5733)")
-    async def cmd_color(self, interaction: discord.Interaction, color: str) -> None:
-        color = color.lstrip("#")
-        if not all(c in "0123456789abcdefABCDEF" for c in color) or len(color) != 6:
-            await interaction.response.send_message(f"{CROSS_NO} Invalid hex color. Use format: `#RRGGBB`", ephemeral=True)
-            return
-        r, g, b = int(color[:2], 16), int(color[2:4], 16), int(color[4:], 16)
-        embed = discord.Embed(title=f"{BUTTON} Color: #{color.upper()}", color=discord.Color.from_rgb(r, g, b))
-        embed.add_field(name="RGB", value=f"({r}, {g}, {b})")
-        embed.set_thumbnail(url=f"https://singlecolorimage.com/get/{color}/64x64")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="roles", description="List all server roles!")
@@ -1370,22 +1257,6 @@ class FeaturesExtCog(commands.Cog):
             if r.name != "@everyone":
                 lines.append(f"{r.mention} - {len(r.members)} members")
         embed = discord.Embed(title=f"{BUTTON} Server Roles", description="\n".join(lines[:25]), color=discord.Color.blue())
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="userinfo", description="View detailed user information!")
-    @app_commands.describe(user="User to look up")
-    async def cmd_userinfo(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
-        user = user or interaction.user
-        embed = discord.Embed(title=f"{BUTTON} {user.display_name}", color=user.color if user.color.value else discord.Color.blue())
-        embed.set_thumbnail(url=user.display_avatar.url)
-        embed.add_field(name="Username", value=str(user))
-        embed.add_field(name="ID", value=str(user.id))
-        embed.add_field(name="Bot", value="Yes" if user.bot else "No")
-        embed.add_field(name="Created", value=user.created_at.strftime("%b %d, %Y") if user.created_at else "N/A")
-        if isinstance(user, discord.Member) and user.joined_at:
-            embed.add_field(name="Joined", value=user.joined_at.strftime("%b %d, %Y"))
-        if isinstance(user, discord.Member):
-            embed.add_field(name="Roles", value=f"{len(user.roles)}")
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="emoji_view", description="View all custom emojis in the server!")
@@ -1403,19 +1274,6 @@ class FeaturesExtCog(commands.Cog):
             lines.append(f"<{anim}:{e.name}:{e.id}> - `:{e.name}:`")
         embed = discord.Embed(title=f"{BUTTON} Server Emojis ({len(emojis)})", description="\n".join(lines[:25]), color=discord.Color.yellow())
         await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="invite", description="Get bot invite link!")
-    async def cmd_invite(self, interaction: discord.Interaction) -> None:
-        embed = discord.Embed(title=f"{BUTTON} Invite Me!", color=discord.Color.blue())
-        embed.description = f"Invite me to your server with this link:\nhttps://discord.com/oauth2/authorize?client_id={self.bot.user.id}&scope=bot&permissions=8" if self.bot.user else "Bot user not available"
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="ping", description="Check bot latency!")
-    async def cmd_ping(self, interaction: discord.Interaction) -> None:
-        latency = round(self.bot.latency * 1000)
-        embed = discord.Embed(title=f"{BUTTON} Pong!", description=f"Latency: **{latency}ms**", color=discord.Color.green() if latency < 200 else discord.Color.orange() if latency < 500 else discord.Color.red())
-        await interaction.response.send_message(embed=embed)
-
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(FeaturesExtCog(bot))
