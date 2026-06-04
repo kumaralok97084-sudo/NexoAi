@@ -224,8 +224,8 @@ class MusicCog(commands.Cog):
         if voice:
             await interaction.followup.send(f"{CHECK_OK} Joined {voice.channel.mention}.", ephemeral=True)
 
-    @app_commands.command(name="leave", description="Leave the voice channel.")
-    async def leave(self, interaction: discord.Interaction) -> None:
+    @app_commands.command(name="disconnect", description="Leave the voice channel.")
+    async def disconnect(self, interaction: discord.Interaction) -> None:
         player = self._get_player(interaction.guild_id)
         player.queue.clear()
         if player.voice and player.voice.is_connected():

@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.emojis import AFK_ICON, CHECK_OK
+from cogs.emojis import AFK_ICON, CHECK_OK, CROSS_NO
 
 class UtilityExtCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
@@ -16,7 +16,7 @@ class UtilityExtCog(commands.Cog):
     @app_commands.command(name="afk", description="Set yourself as AFK.")
     async def afk(self, interaction: discord.Interaction, reason: str = "") -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             await db.execute(
@@ -47,7 +47,7 @@ class UtilityExtCog(commands.Cog):
                 )
                 await db.commit()
                 try:
-                    await message.channel.send(f"Welcome back {message.author.mention}! Removed your AFK.", delete_after=5)
+                    await message.channel.send(f"{CHECK_OK} Welcome back {message.author.mention}! Removed your AFK.", delete_after=5)
                 except discord.Forbidden:
                     pass
 

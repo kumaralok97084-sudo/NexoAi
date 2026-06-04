@@ -6,7 +6,51 @@ import time
 from pathlib import Path
 
 import discord
+from discord.app_commands import CommandTree
 from discord.ext import commands, tasks
+
+
+class UnlimitedTree(CommandTree):
+    def add_command(self, command, /, *, guild=None, guilds=None, override=False):
+        import discord.app_commands as ac
+        from discord.utils import MISSING
+        has_guild = guild is not None and guild is not MISSING
+        has_guilds = guilds is not None and guilds is not MISSING
+        if has_guild or has_guilds:
+            gids = [guild.id] if has_guild else [s.id for s in guilds]
+            return self._add_guild_command(command, gids, override)
+        return self._add_global_command(command, override)
+
+    def _add_guild_command(self, command, gids, override):
+        import discord.app_commands as ac
+        if isinstance(command, ac.ContextMenu):
+            return super().add_command(command, guild=discord.Object(id=gids[0]), override=override)
+        if not isinstance(command, (ac.Command, ac.Group)):
+            raise TypeError(f"Expected Command or Group, got {command.__class__.__name__}")
+        root = command.root_parent or command
+        name = root.name
+        for gid in gids:
+            cmds = self._guild_commands.setdefault(gid, {})
+            if name in cmds and not override:
+                raise ac.CommandAlreadyRegistered(name, gid)
+            cmds[name] = root
+
+    def _add_global_command(self, command, override):
+        import discord.app_commands as ac
+        if isinstance(command, ac.ContextMenu):
+            return super().add_command(command, override=override)
+        if not isinstance(command, (ac.Command, ac.Group)):
+            raise TypeError(f"Expected Command or Group, got {command.__class__.__name__}")
+        root = command.root_parent or command
+        name = root.name
+        if name in self._global_commands and not override:
+            raise ac.CommandAlreadyRegistered(name, None)
+        self._global_commands[name] = root
+
+    def copy_global_to(self, *, guild):
+        mapping = self._guild_commands.get(guild.id, {}).copy()
+        mapping.update(self._global_commands)
+        self._guild_commands[guild.id] = mapping
 
 from config import PRESENCE_TYPES, load_settings
 from database import Database
@@ -51,7 +95,7 @@ intents.message_content = True
 intents.members = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix=settings.bot_prefix, intents=intents)
+bot = commands.Bot(command_prefix=settings.bot_prefix, intents=intents, tree_cls=UnlimitedTree)
 bot.db = database  # type: ignore[attr-defined]
 bot.llm = llm  # type: ignore[attr-defined]
 bot.memory = memory_mgr  # type: ignore[attr-defined]
@@ -68,18 +112,54 @@ async def on_ready() -> None:
     if settings.rotating_statuses and not rotate_status.is_running():
         rotate_status.start()
     logging.info("Logged in as %s (%s)", bot.user, bot.user.id if bot.user else "n/a")
-    synced = await bot.tree.sync()
-    logging.info("Synced %d slash commands.", len(synced))
+    guilds = bot.guilds
+    if guilds:
+        for g in guilds[:1]:
+            try:
+                bot.tree.copy_global_to(guild=g)
+                synced = await bot.tree.sync(guild=g)
+                logging.info("Synced %d slash commands to guild %s.", len(synced), g.name)
+            except Exception as e:
+                logging.warning("Per-guild sync failed: %s", e)
+    else:
+        synced = await bot.tree.sync()
+        logging.info("Synced %d slash commands globally.", len(synced))
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError) -> None:
+    logging.error("Command %s error: %s", interaction.command, error, exc_info=True)
+    if not interaction.response.is_done():
+        try:
+            await interaction.response.send_message(f"Error: {error}", ephemeral=True)
+        except Exception as exc2:
+            logging.error("Failed to send error response: %s", exc2)
+    else:
+        try:
+            await interaction.followup.send(f"Error: {error}", ephemeral=True)
+        except Exception as exc2:
+            logging.error("Failed to send followup error: %s", exc2)
+
+
+@bot.listen()
+async def on_interaction(interaction: discord.Interaction) -> None:
+    if interaction.type == discord.InteractionType.application_command:
+        logging.info("Interaction: cmd=%s id=%s guild=%s user=%s",
+                     interaction.command, interaction.id, interaction.guild_id, interaction.user.id)
+
+
+
 
 
 @bot.event
 async def setup_hook() -> None:
-    await bot.db.init()  # type: ignore[attr-defined]
+    await bot.db.init()
+
     for extension in (
         "cogs.ai", "cogs.admin", "cogs.general", "cogs.moderation", "cogs.hosting", "cogs.utility",
-        "cogs.economy", "cogs.games", "cogs.leveling", "cogs.music", "cogs.fun",
-        "cogs.utility_ext", "cogs.moderation_ext", "cogs.server_mgmt", "cogs.server_stats",
-        "cogs.link_mod", "cogs.tags", "cogs.embed_builder",
+        "cogs.economy",
+        "cogs.utility_ext",
+        "cogs.features_ext",
     ):
         await bot.load_extension(extension)
         logging.info("Loaded extension: %s", extension)

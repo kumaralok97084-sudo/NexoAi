@@ -7,8 +7,9 @@ import httpx
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.emojis import CHECK_OK, CROSS_NO, HELP_FUN, STAT_HUMANS
+
 MEME_TEMPLATES = [
-    {"id": "drake", "url": "https://api.memegen.link/images/drake/{top}/{bottom}.png", "desc": "Drake Yes/No"},
     {"id": "disastergirl", "url": "https://api.memegen.link/images/disastergirl/{top}/{bottom}.png", "desc": "Disaster Girl"},
     {"id": "doge", "url": "https://api.memegen.link/images/doge/{top}/{bottom}.png", "desc": "Doge"},
     {"id": "fry", "url": "https://api.memegen.link/images/fry/{top}/{bottom}.png", "desc": "Futurama Fry"},
@@ -56,7 +57,7 @@ class FunCog(commands.Cog):
         if url:
             await interaction.followup.send(url)
         else:
-            await interaction.followup.send("Could not fetch a cat picture right now.")
+            await interaction.followup.send(f"{CROSS_NO} Could not fetch a cat picture right now.")
 
     @app_commands.command(name="dog", description="Get a random dog picture.")
     async def dog(self, interaction: discord.Interaction) -> None:
@@ -65,7 +66,7 @@ class FunCog(commands.Cog):
         if url:
             await interaction.followup.send(url)
         else:
-            await interaction.followup.send("Could not fetch a dog picture right now.")
+            await interaction.followup.send(f"{CROSS_NO} Could not fetch a dog picture right now.")
 
     @app_commands.command(name="fox", description="Get a random fox picture.")
     async def fox(self, interaction: discord.Interaction) -> None:
@@ -74,13 +75,13 @@ class FunCog(commands.Cog):
         if url:
             await interaction.followup.send(url)
         else:
-            await interaction.followup.send("Could not fetch a fox picture right now.")
+            await interaction.followup.send(f"{CROSS_NO} Could not fetch a fox picture right now.")
 
     @app_commands.command(name="avatar", description="Show a user's avatar.")
     async def avatar(self, interaction: discord.Interaction, user: discord.User | None = None) -> None:
         target = user or interaction.user
         embed = discord.Embed(
-            title=f"{target.display_name}'s Avatar",
+            title=f"{STAT_HUMANS} {target.display_name}'s Avatar",
             color=discord.Color.blue(),
         )
         embed.set_image(url=target.display_avatar.url)
@@ -90,9 +91,9 @@ class FunCog(commands.Cog):
     async def server_icon(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         if not guild or not guild.icon:
-            await interaction.response.send_message("This server has no icon.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} This server has no icon.", ephemeral=True)
             return
-        embed = discord.Embed(title=f"{guild.name}'s Icon", color=discord.Color.blue())
+        embed = discord.Embed(title=f"{HELP_FUN} {guild.name}'s Icon", color=discord.Color.blue())
         embed.set_image(url=guild.icon.url)
         await interaction.response.send_message(embed=embed)
 
@@ -108,13 +109,13 @@ class FunCog(commands.Cog):
     async def meme(self, interaction: discord.Interaction, template: str, top: str, bottom: str) -> None:
         tpl = next((t for t in MEME_TEMPLATES if t["id"] == template), None)
         if not tpl:
-            await interaction.response.send_message("Invalid template.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Invalid template.", ephemeral=True)
             return
         import urllib.parse
         top_enc = urllib.parse.quote(top.replace("?", "~q").replace("--", "~~").replace("_", "__").replace(" ", "_"))
         bottom_enc = urllib.parse.quote(bottom.replace("?", "~q").replace("--", "~~").replace("_", "__").replace(" ", "_"))
         url = tpl["url"].format(top=top_enc or "_", bottom=bottom_enc or "_")
-        embed = discord.Embed(title=f"Meme: {tpl['desc']}", color=discord.Color.green())
+        embed = discord.Embed(title=f"{HELP_FUN} Meme: {tpl['desc']}", color=discord.Color.green())
         embed.set_image(url=url)
         embed.set_footer(text="Powered by memegen.link")
         await interaction.response.send_message(embed=embed)
@@ -122,7 +123,7 @@ class FunCog(commands.Cog):
     @app_commands.command(name="memetemplates", description="List available meme templates.")
     async def meme_templates(self, interaction: discord.Interaction) -> None:
         lines = [f"`{t['id']}` — {t['desc']}" for t in MEME_TEMPLATES]
-        await interaction.response.send_message("**Meme Templates**\n" + "\n".join(lines), ephemeral=True)
+        await interaction.response.send_message(f"{HELP_FUN} **Meme Templates**\n" + "\n".join(lines), ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

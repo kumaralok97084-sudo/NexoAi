@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.emojis import BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, DAILY, DICE, EARNED, GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN, JOB_CHEF, JOB_CODER, JOB_DOCTOR, JOB_ENGINEER, JOB_FARMER, JOB_FISHER, JOB_MINER, JOB_TEACHER, SILVER, SLOT_DIAMOND, SPENT, STREAK, WITHDRAW, WORK_BRIEF
+from cogs.emojis import BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, DAILY, DICE, EARNED, GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN, JOB_CHEF, JOB_CODER, JOB_CONSULTANT, JOB_DESIGNER, JOB_DOCTOR, JOB_ENGINEER, JOB_FARMER, JOB_FISHER, JOB_MINER, JOB_TEACHER, LOSE, SHOP, SILVER, SLOT_DIAMOND, SPENT, STREAK, WIN, WITHDRAW, WORK_BRIEF
 
 DAILY_AMOUNT = 100
 STREAK_BONUS = 25
@@ -31,8 +31,8 @@ ROB_FAIL_FINE = 50
 
 JOBS = [
     (JOB_CODER, "programmer", 40, 90),
-    (HELP_FUN, "designer", 40, 80),
-    (WORK_BRIEF, "consultant", 30, 100),
+    (JOB_DESIGNER, "designer", 40, 80),
+    (JOB_CONSULTANT, "consultant", 30, 100),
     (JOB_TEACHER, "teacher", 30, 60),
     (JOB_MINER, "miner", 25, 70),
     (JOB_FISHER, "fisher", 25, 55),
@@ -186,7 +186,7 @@ class EconomyCog(commands.Cog):
             ) as cursor:
                 rows = await cursor.fetchall()
         if not rows:
-            await interaction.response.send_message("No economy data yet.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} No economy data yet.", ephemeral=True)
             return
         lines = []
         for i, (uid, total) in enumerate(rows, 1):
@@ -310,7 +310,7 @@ class EconomyCog(commands.Cog):
             fine = random.randint(CRIME_FAIL_PENALTY // 2, CRIME_FAIL_PENALTY)
             ok, new_bal = await self._sub_balance(uid, fine)
             if not ok:
-                await interaction.response.send_message("You need coins in your wallet to attempt a crime.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} You need coins in your wallet to attempt a crime.", ephemeral=True)
                 return
             desc = f"You {act} and paid a fine of **{fine}** coins!"
             color = discord.Color.red()
@@ -325,7 +325,7 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="gamble", description="Gamble your coins (50/50 double or nothing).")
     async def gamble(self, interaction: discord.Interaction, amount: int) -> None:
         if amount < 5:
-            await interaction.response.send_message("Minimum gamble is **5** coins.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Minimum gamble is **5** coins.", ephemeral=True)
             return
 
         win = random.random() < 0.5
@@ -336,9 +336,9 @@ class EconomyCog(commands.Cog):
         else:
             ok, new_bal = await self._sub_balance(interaction.user.id, amount)
             if not ok:
-                await interaction.response.send_message(f"You don't have **{amount}** coins.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} You don't have **{amount}** coins.", ephemeral=True)
                 return
-            result = f"You lost **{amount}** coins. 😅"
+            result = f"{LOSE} You lost **{amount}** coins."
             color = discord.Color.red()
 
         embed = discord.Embed(title=f"{DICE} Gamble", description=result, color=color)
@@ -350,10 +350,10 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="rob", description="Rob another user.")
     async def rob(self, interaction: discord.Interaction, user: discord.User) -> None:
         if user.id == interaction.user.id:
-            await interaction.response.send_message("You can't rob yourself.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You can't rob yourself.", ephemeral=True)
             return
         if user.bot:
-            await interaction.response.send_message("You can't rob a bot.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You can't rob a bot.", ephemeral=True)
             return
 
         uid = interaction.user.id
@@ -366,7 +366,7 @@ class EconomyCog(commands.Cog):
 
         target = await self._read(user.id)
         if target["balance"] < 50:
-            await interaction.response.send_message(f"{user.display_name} is too poor to rob.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} {user.display_name} is too poor to rob.", ephemeral=True)
             return
 
         success = random.random() < 0.45
@@ -381,7 +381,7 @@ class EconomyCog(commands.Cog):
                     (take, take, user.id, take),
                 )
                 if cursor.rowcount == 0:
-                    await interaction.response.send_message("They lost their coins before you could rob them!", ephemeral=True)
+                    await interaction.response.send_message(f"{CROSS_NO} They lost their coins before you could rob them!", ephemeral=True)
                     return
                 await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
                 await db.execute(
@@ -397,7 +397,7 @@ class EconomyCog(commands.Cog):
                     (fine, fine, uid, fine),
                 )
                 if cursor.rowcount == 0:
-                    await interaction.response.send_message("You tried to rob but got caught! No fine since you're broke.", ephemeral=True)
+                    await interaction.response.send_message(f"{CROSS_NO} You tried to rob but got caught! No fine since you're broke.", ephemeral=True)
                     await self._set_fields(uid, last_rob=now.isoformat())
                     return
                 desc = f"You got caught and paid **{fine}** coins to {user.mention}!"
@@ -421,10 +421,10 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="pay", description="Send coins to another user.")
     async def pay(self, interaction: discord.Interaction, user: discord.User, amount: int) -> None:
         if amount < 1:
-            await interaction.response.send_message("Amount must be at least 1.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Amount must be at least 1.", ephemeral=True)
             return
         if user.id == interaction.user.id:
-            await interaction.response.send_message("You can't pay yourself.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You can't pay yourself.", ephemeral=True)
             return
 
         async with aiosqlite.connect(self.bot.db.db_path) as db:
@@ -435,7 +435,7 @@ class EconomyCog(commands.Cog):
             )
             if cursor.rowcount == 0:
                 await db.execute("ROLLBACK")
-                await interaction.response.send_message("You don't have enough coins.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
                 return
             await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user.id,))
             await db.execute(
@@ -461,16 +461,16 @@ class EconomyCog(commands.Cog):
             try:
                 amt = int(amount)
             except ValueError:
-                await interaction.response.send_message("Enter a number or 'all'.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
                 return
 
         if amt <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
             return
 
         ok, new_wallet = await self._sub_balance(uid, amt)
         if not ok:
-            await interaction.response.send_message("You don't have enough coins.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
             return
         new_bank = await self._add_bank(uid, amt)
 
@@ -486,16 +486,16 @@ class EconomyCog(commands.Cog):
             try:
                 amt = int(amount)
             except ValueError:
-                await interaction.response.send_message("Enter a number or 'all'.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
                 return
 
         if amt <= 0:
-            await interaction.response.send_message("Amount must be positive.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
             return
 
         ok, new_bank = await self._sub_bank(uid, amt)
         if not ok:
-            await interaction.response.send_message("Not enough coins in bank.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Not enough coins in bank.", ephemeral=True)
             return
         new_wallet = await self._add_balance(uid, amt)
 
@@ -515,7 +515,7 @@ class EconomyCog(commands.Cog):
                 items = await cursor.fetchall()
 
         if not items:
-            await interaction.response.send_message("You don't own any items.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You don't own any items.", ephemeral=True)
             return
 
         lines = [f"• **{i[0]}** — {i[1] or 'No description'}\n  `{i[2]}`" for i in items]
@@ -581,7 +581,7 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="gift", description="Gift coins to another user.")
     async def gift(self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, 100000]) -> None:
         if user.id == interaction.user.id:
-            await interaction.response.send_message("You can't gift yourself.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} You can't gift yourself.", ephemeral=True); return
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             await db.execute("BEGIN")
             cursor = await db.execute(
@@ -590,7 +590,7 @@ class EconomyCog(commands.Cog):
             )
             if cursor.rowcount == 0:
                 await db.execute("ROLLBACK")
-                await interaction.response.send_message("Not enough coins.", ephemeral=True); return
+                await interaction.response.send_message(f"{CROSS_NO} Not enough coins.", ephemeral=True); return
             await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user.id,))
             await db.execute(
                 "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?",
@@ -606,7 +606,7 @@ class EconomyCog(commands.Cog):
     @shop.command(name="list", description="View items for sale.")
     async def shop_list(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             async with db.execute(
@@ -614,15 +614,15 @@ class EconomyCog(commands.Cog):
             ) as cursor:
                 items = await cursor.fetchall()
         if not items:
-            await interaction.response.send_message("Shop is empty.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Shop is empty.", ephemeral=True)
             return
         lines = [f"`#{i[0]}` **{i[1]}** — {i[3]} coins\n  {i[2] or 'No description'}" for i in items]
-        await interaction.response.send_message("**🛒 Server Shop**\n" + "\n".join(lines))
+        await interaction.response.send_message(f"**{SHOP} Server Shop**\n" + "\n".join(lines))
 
     @shop.command(name="buy", description="Buy an item from the shop.")
     async def shop_buy(self, interaction: discord.Interaction, item_id: int) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
 
         async with aiosqlite.connect(self.bot.db.db_path) as db:
@@ -632,7 +632,7 @@ class EconomyCog(commands.Cog):
             ) as cursor:
                 item = await cursor.fetchone()
             if not item:
-                await interaction.response.send_message("Item not found.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} Item not found.", ephemeral=True)
                 return
 
             await db.execute("BEGIN")
@@ -642,7 +642,7 @@ class EconomyCog(commands.Cog):
             )
             if cursor.rowcount == 0:
                 await db.execute("ROLLBACK")
-                await interaction.response.send_message(f"You need **{item[2]}** coins.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} You need **{item[2]}** coins.", ephemeral=True)
                 return
             await db.execute(
                 "INSERT INTO inventory (user_id, item_id) VALUES (?, ?)", (interaction.user.id, item_id),
@@ -669,7 +669,7 @@ class EconomyCog(commands.Cog):
     async def add_item(self, interaction: discord.Interaction, name: str, price: int,
                        description: str = "", role: discord.Role | None = None) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             await db.execute(
@@ -684,7 +684,7 @@ class EconomyCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def remove_item(self, interaction: discord.Interaction, item_id: int) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             await db.execute("DELETE FROM shop_items WHERE id = ? AND guild_id = ?", (item_id, interaction.guild.id))

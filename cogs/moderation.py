@@ -8,6 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.emojis import CHECK_OK, CROSS_NO
+
 SCAM_KEYWORDS = (
     "discord.gift",
     "free nitro",
@@ -59,7 +61,7 @@ class ModerationCog(commands.Cog):
             try:
                 await message.delete()
                 await message.channel.send(
-                    f"{message.author.mention}, your message looked like a scam link and was removed.",
+                    f"{CROSS_NO} {message.author.mention}, your message looked like a scam link and was removed.",
                     delete_after=5,
                 )
                 await self.bot.db.add_moderation_log(
@@ -77,7 +79,7 @@ class ModerationCog(commands.Cog):
                 try:
                     await message.delete()
                     await message.channel.send(
-                        f"{message.author.mention}, your message matched a filter: `{cf['pattern']}`",
+                        f"{CROSS_NO} {message.author.mention}, your message matched a filter: `{cf['pattern']}`",
                         delete_after=5,
                     )
                     await self.bot.db.add_moderation_log(
@@ -148,7 +150,7 @@ class ModerationCog(commands.Cog):
         max_warns = self.bot.settings.moderation_max_warns
 
         channel_notify = (
-            f"{message.author.mention} **Auto-Moderated** | Reason: `{reason}` "
+            f"{CROSS_NO} {message.author.mention} **Auto-Moderated** | Reason: `{reason}` "
             f"(Warning {warn_count}/{max_warns})"
         )
         try:
@@ -158,7 +160,7 @@ class ModerationCog(commands.Cog):
 
         try:
             await message.author.send(
-                f"Your message in **{message.guild.name}** was removed.\n"
+                f"{CROSS_NO} Your message in **{message.guild.name}** was removed.\n"
                 f"Reason: `{reason}`\n"
                 f"Warning: {warn_count}/{max_warns}\n"
                 f"Content: `{message.content[:200]}`"
@@ -180,7 +182,7 @@ class ModerationCog(commands.Cog):
                     )
                     try:
                         await message.channel.send(
-                            f"{member.mention} has been timed out for {timeout_mins} minutes "
+                            f"{CROSS_NO} {member.mention} has been timed out for {timeout_mins} minutes "
                             f"(reached {max_warns} warns).",
                             delete_after=10,
                         )
@@ -195,11 +197,11 @@ class ModerationCog(commands.Cog):
     @app_commands.checks.has_permissions(manage_messages=True)
     async def purge(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100]) -> None:
         if not isinstance(interaction.channel, discord.TextChannel):
-            await interaction.response.send_message("Use in a text channel.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Use in a text channel.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         deleted = await interaction.channel.purge(limit=amount)
-        await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
+        await interaction.followup.send(f"{CHECK_OK} Deleted {len(deleted)} messages.", ephemeral=True)
 
     @app_commands.command(name="timeout", description="Timeout a member.")
     @app_commands.checks.has_permissions(moderate_members=True)
@@ -216,7 +218,7 @@ class ModerationCog(commands.Cog):
             interaction.guild_id, member.id, "timeout", reason, f"Duration: {minutes}min",
         )
         await interaction.response.send_message(
-            f"{member.mention} has been timed out for {minutes} minutes."
+            f"{CHECK_OK} {member.mention} has been timed out for {minutes} minutes."
         )
 
     @app_commands.command(name="untimeout", description="Remove timeout from a member.")
@@ -228,7 +230,7 @@ class ModerationCog(commands.Cog):
         await self.bot.db.add_moderation_log(
             interaction.guild_id, member.id, "untimeout", f"Removed by {interaction.user}", "",
         )
-        await interaction.response.send_message(f"Timeout removed for {member.mention}.")
+        await interaction.response.send_message(f"{CHECK_OK} Timeout removed for {member.mention}.")
 
     @app_commands.command(name="warn", description="Warn a member and track count.")
     @app_commands.checks.has_permissions(moderate_members=True)
@@ -236,7 +238,7 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member, reason: str
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
 
         total_warns = await self.bot.db.count_warns(interaction.guild.id, member.id)
@@ -245,11 +247,11 @@ class ModerationCog(commands.Cog):
         max_warns = self.bot.settings.moderation_max_warns
 
         await interaction.response.send_message(
-            f"{member.mention} warned. Reason: `{reason}` (Total warns: {total_warns}/{max_warns})"
+            f"{CHECK_OK} {member.mention} warned. Reason: `{reason}` (Total warns: {total_warns}/{max_warns})"
         )
         try:
             await member.send(
-                f"You were warned in **{interaction.guild.name}**: {reason}\n"
+                f"{CROSS_NO} You were warned in **{interaction.guild.name}**: {reason}\n"
                 f"Total warns: {total_warns}/{max_warns}"
             )
         except discord.Forbidden:
@@ -261,17 +263,17 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         warns = await self.bot.db.get_warns(interaction.guild.id, member.id)
         if not warns:
             await interaction.response.send_message(
-                f"{member.mention} has no warns.", ephemeral=True
+                f"{CHECK_OK} {member.mention} has no warns.", ephemeral=True
             )
             return
         lines = [f"`#{w['id']}` {w['reason']}" for w in warns[:20]]
         embed = discord.Embed(
-            title=f"Warns for {member}",
+            title=f"{CROSS_NO} Warns for {member}",
             description="\n".join(lines),
             color=discord.Color.orange(),
         )
@@ -284,18 +286,18 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         warns = await self.bot.db.get_warns(interaction.guild.id, member.id)
         if not warns:
             await interaction.response.send_message(
-                f"{member.mention} has no warns to remove.", ephemeral=True
+                f"{CROSS_NO} {member.mention} has no warns to remove.", ephemeral=True
             )
             return
         latest = warns[0]
         await self.bot.db.delete_warn(latest["id"])
         await interaction.response.send_message(
-            f"Removed latest warn from {member.mention}: `{latest['reason']}`", ephemeral=True
+            f"{CHECK_OK} Removed latest warn from {member.mention}: `{latest['reason']}`", ephemeral=True
         )
 
     # ---- Custom Filters ----
@@ -304,42 +306,42 @@ class ModerationCog(commands.Cog):
     @app_commands.checks.has_permissions(manage_messages=True)
     async def filter_cmd(self, interaction: discord.Interaction, action: str, pattern: str | None = None) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         gid = interaction.guild.id
         if action == "add" and pattern:
             await self.bot.db.add_filter(gid, pattern, "warn")
-            await interaction.response.send_message(f"Filter added: `{pattern}`", ephemeral=True)
+            await interaction.response.send_message(f"{CHECK_OK} Filter added: `{pattern}`", ephemeral=True)
         elif action == "remove" and pattern:
             filters = await self.bot.db.get_filters(gid)
             for f in filters:
                 if f["pattern"] == pattern:
                     await self.bot.db.remove_filter(f["id"])
-                    await interaction.response.send_message(f"Filter removed: `{pattern}`", ephemeral=True)
+                    await interaction.response.send_message(f"{CHECK_OK} Filter removed: `{pattern}`", ephemeral=True)
                     return
-            await interaction.response.send_message(f"Filter not found: `{pattern}`", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Filter not found: `{pattern}`", ephemeral=True)
         elif action == "list":
             filters = await self.bot.db.get_filters(gid)
             if not filters:
-                await interaction.response.send_message("No custom filters set.", ephemeral=True)
+                await interaction.response.send_message(f"{CROSS_NO} No custom filters set.", ephemeral=True)
                 return
             lines = [f"`#{f['id']}` `{f['pattern']}` -> {f['action']}" for f in filters]
-            await interaction.response.send_message("**Custom Filters**\n" + "\n".join(lines), ephemeral=True)
+            await interaction.response.send_message(f"{CHECK_OK} **Custom Filters**\n" + "\n".join(lines), ephemeral=True)
         else:
-            await interaction.response.send_message("Usage: add <pattern>, remove <pattern>, list", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Usage: add <pattern>, remove <pattern>, list", ephemeral=True)
 
     @app_commands.command(name="filtermode", description="Set filter strictness.")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def filter_mode(self, interaction: discord.Interaction, mode: str) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         mode = mode.lower()
         if mode not in ("strict", "relaxed", "off"):
-            await interaction.response.send_message("Mode must be: strict, relaxed, or off", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Mode must be: strict, relaxed, or off", ephemeral=True)
             return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "filter_mode", mode)
-        await interaction.response.send_message(f"Filter mode set to `{mode}`.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Filter mode set to `{mode}`.", ephemeral=True)
 
     # ---- Raid Protection ----
 
@@ -347,11 +349,11 @@ class ModerationCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def raid_mode(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "raid_mode", str(int(enabled)))
         status = "enabled" if enabled else "disabled"
-        await interaction.response.send_message(f"Raid mode {status}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Raid mode {status}.", ephemeral=True)
         if enabled:
             for channel in interaction.guild.text_channels:
                 try:
@@ -363,7 +365,7 @@ class ModerationCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def lockdown(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         count = 0
@@ -373,13 +375,13 @@ class ModerationCog(commands.Cog):
                 count += 1
             except discord.Forbidden:
                 pass
-        await interaction.followup.send(f"🔒 Locked {count} channels.", ephemeral=True)
+        await interaction.followup.send(f"{CHECK_OK} Locked {count} channels.", ephemeral=True)
 
     @app_commands.command(name="unlockall", description="Unlock all text channels.")
     @app_commands.checks.has_permissions(administrator=True)
     async def unlock_all(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
         count = 0
@@ -389,30 +391,30 @@ class ModerationCog(commands.Cog):
                 count += 1
             except discord.Forbidden:
                 pass
-        await interaction.followup.send(f"🔓 Unlocked {count} channels.", ephemeral=True)
+        await interaction.followup.send(f"{CHECK_OK} Unlocked {count} channels.", ephemeral=True)
 
     @app_commands.command(name="antispam", description="Toggle anti-spam protection.")
     @app_commands.checks.has_permissions(manage_messages=True)
     async def antispam(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "antispam_enabled", str(int(enabled)))
         status = "enabled" if enabled else "disabled"
-        await interaction.response.send_message(f"Anti-spam {status}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Anti-spam {status}.", ephemeral=True)
 
     @app_commands.command(name="modsettings", description="View current moderation settings.")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def mod_settings(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
             return
         gid = interaction.guild.id
         raid = await self.bot.db.get_guild_setting(gid, "raid_mode")
         spam = await self.bot.db.get_guild_setting(gid, "antispam_enabled")
         fmode = await self.bot.db.get_guild_setting(gid, "filter_mode")
         filters = await self.bot.db.get_filters(gid)
-        embed = discord.Embed(title="Moderation Settings", color=discord.Color.orange())
+        embed = discord.Embed(title=f"{CHECK_OK} Moderation Settings", color=discord.Color.orange())
         embed.add_field(name="Max Warns", value=str(self.bot.settings.moderation_max_warns), inline=True)
         embed.add_field(name="Timeout Duration", value=f"{self.bot.settings.moderation_timeout_minutes}min", inline=True)
         embed.add_field(name="Raid Mode", value="✅ On" if raid == "1" else "❌ Off", inline=True)
@@ -427,17 +429,17 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         logs = await self.bot.db.get_moderation_logs(interaction.guild.id, member.id)
         if not logs:
             await interaction.response.send_message(
-                f"No moderation logs for {member.mention}.", ephemeral=True
+                f"{CROSS_NO} No moderation logs for {member.mention}.", ephemeral=True
             )
             return
         lines = [f"`{l['action']}` - {l['reason']}" for l in logs[:15]]
         embed = discord.Embed(
-            title=f"Mod Logs for {member}",
+            title=f"{CROSS_NO} Mod Logs for {member}",
             description="\n".join(lines),
             color=discord.Color.red(),
         )
@@ -451,33 +453,33 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, seconds: app_commands.Range[int, 0, 21600]
     ) -> None:
         if not isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
-            await interaction.response.send_message("Use in a text channel.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Use in a text channel.", ephemeral=True)
             return
         await interaction.channel.edit(slowmode_delay=seconds)
         if seconds == 0:
-            await interaction.response.send_message("Slowmode removed.")
+            await interaction.response.send_message(f"{CHECK_OK} Slowmode removed.")
         else:
-            await interaction.response.send_message(f"Slowmode set to {seconds} seconds.")
+            await interaction.response.send_message(f"{CHECK_OK} Slowmode set to {seconds} seconds.")
 
     @app_commands.command(name="lock", description="Lock a channel (deny send messages).")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def lock(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         target = channel or interaction.channel
         if not isinstance(target, discord.TextChannel):
-            await interaction.response.send_message("Use in a text channel.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Use in a text channel.", ephemeral=True)
             return
         await target.set_permissions(target.guild.default_role, send_messages=False)
-        await interaction.response.send_message(f"{target.mention} has been locked.")
+        await interaction.response.send_message(f"{CHECK_OK} {target.mention} has been locked.")
 
     @app_commands.command(name="unlock", description="Unlock a channel (allow send messages).")
     @app_commands.checks.has_permissions(manage_channels=True)
     async def unlock(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
         target = channel or interaction.channel
         if not isinstance(target, discord.TextChannel):
-            await interaction.response.send_message("Use in a text channel.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Use in a text channel.", ephemeral=True)
             return
         await target.set_permissions(target.guild.default_role, send_messages=None)
-        await interaction.response.send_message(f"{target.mention} has been unlocked.")
+        await interaction.response.send_message(f"{CHECK_OK} {target.mention} has been unlocked.")
 
     @app_commands.command(name="kick", description="Kick a member from the server.")
     @app_commands.checks.has_permissions(kick_members=True)
@@ -485,14 +487,14 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("You cannot kick this member.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You cannot kick this member.", ephemeral=True)
             return
         await member.kick(reason=reason)
         await self.bot.db.add_moderation_log(interaction.guild.id, member.id, "kick", reason, "")
-        await interaction.response.send_message(f"{member} has been kicked. Reason: {reason}")
+        await interaction.response.send_message(f"{CHECK_OK} {member} has been kicked. Reason: {reason}")
 
     @app_commands.command(name="ban", description="Ban a member from the server.")
     @app_commands.checks.has_permissions(ban_members=True)
@@ -501,35 +503,35 @@ class ModerationCog(commands.Cog):
         delete_messages: app_commands.Range[int, 0, 7] = 0,
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("You cannot ban this member.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You cannot ban this member.", ephemeral=True)
             return
         await member.ban(reason=reason, delete_message_days=delete_messages)
         await self.bot.db.add_moderation_log(interaction.guild.id, member.id, "ban", reason, f"delete_days:{delete_messages}")
-        await interaction.response.send_message(f"{member} has been banned. Reason: {reason}")
+        await interaction.response.send_message(f"{CHECK_OK} {member} has been banned. Reason: {reason}")
 
     @app_commands.command(name="unban", description="Unban a user by ID.")
     @app_commands.checks.has_permissions(ban_members=True)
     async def unban(self, interaction: discord.Interaction, user_id: str, reason: str = "No reason provided") -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         try:
             uid = int(user_id)
         except ValueError:
-            await interaction.response.send_message("Invalid user ID. Provide a numeric ID.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Invalid user ID. Provide a numeric ID.", ephemeral=True)
             return
         try:
             user = await self.bot.fetch_user(uid)
             await interaction.guild.unban(user, reason=reason)
             await self.bot.db.add_moderation_log(interaction.guild.id, uid, "unban", reason, "")
-            await interaction.response.send_message(f"{user} has been unbanned.")
+            await interaction.response.send_message(f"{CHECK_OK} {user} has been unbanned.")
         except discord.NotFound:
-            await interaction.response.send_message("User not found or not banned.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} User not found or not banned.", ephemeral=True)
         except Exception as exc:
-            await interaction.response.send_message(f"Failed to unban: {exc}", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Failed to unban: {exc}", ephemeral=True)
 
     @app_commands.command(name="clean", description="Delete recent messages from a specific user.")
     @app_commands.checks.has_permissions(manage_messages=True)
@@ -537,7 +539,7 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member, limit: app_commands.Range[int, 1, 100] = 20
     ) -> None:
         if not isinstance(interaction.channel, discord.TextChannel):
-            await interaction.response.send_message("Use in a text channel.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Use in a text channel.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
 
@@ -545,7 +547,7 @@ class ModerationCog(commands.Cog):
             return msg.author.id == member.id
 
         deleted = await interaction.channel.purge(limit=limit, check=check)
-        await interaction.followup.send(f"Deleted {len(deleted)} messages from {member}.", ephemeral=True)
+        await interaction.followup.send(f"{CHECK_OK} Deleted {len(deleted)} messages from {member}.", ephemeral=True)
 
     @app_commands.command(name="nick", description="Change a member's nickname.")
     @app_commands.checks.has_permissions(manage_nicknames=True)
@@ -553,7 +555,7 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member, nickname: str
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         try:
             old = member.display_name
@@ -561,9 +563,9 @@ class ModerationCog(commands.Cog):
             await self.bot.db.add_moderation_log(
                 interaction.guild.id, member.id, "nick", f"Changed from '{old}' to '{nickname}'", "",
             )
-            await interaction.response.send_message(f"Changed {member.mention}'s nickname to `{nickname}`.")
+            await interaction.response.send_message(f"{CHECK_OK} Changed {member.mention}'s nickname to `{nickname}`.")
         except discord.Forbidden:
-            await interaction.response.send_message("I don't have permission to change that nickname.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} I don't have permission to change that nickname.", ephemeral=True)
 
     @app_commands.command(name="softban", description="Ban and immediately unban (clears recent messages).")
     @app_commands.checks.has_permissions(ban_members=True)
@@ -571,15 +573,15 @@ class ModerationCog(commands.Cog):
         self, interaction: discord.Interaction, member: discord.Member, reason: str = "No reason provided"
     ) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only command.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} Server only command.", ephemeral=True)
             return
         if member.top_role >= interaction.user.top_role and interaction.user.id != interaction.guild.owner_id:
-            await interaction.response.send_message("You cannot softban this member.", ephemeral=True)
+            await interaction.response.send_message(f"{CROSS_NO} You cannot softban this member.", ephemeral=True)
             return
         await member.ban(reason=reason, delete_message_days=1)
         await interaction.guild.unban(member, reason="Softban complete")
         await self.bot.db.add_moderation_log(interaction.guild.id, member.id, "softban", reason, "")
-        await interaction.response.send_message(f"{member} has been softbanned. Reason: {reason}")
+        await interaction.response.send_message(f"{CHECK_OK} {member} has been softbanned. Reason: {reason}")
 
     # ---- Mod Config Group ----
 
@@ -589,47 +591,47 @@ class ModerationCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def mc_antispam(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "antispam_enabled", str(int(enabled)))
-        await interaction.response.send_message(f"Anti-spam {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Anti-spam {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @modconfig.command(name="raidmode", description="Toggle raid protection mode.")
     @app_commands.checks.has_permissions(administrator=True)
     async def mc_raidmode(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "raid_mode", str(int(enabled)))
-        await interaction.response.send_message(f"Raid mode {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Raid mode {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @modconfig.command(name="filter", description="Toggle word filter.")
     @app_commands.checks.has_permissions(administrator=True)
     async def mc_filter(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "filter_enabled", str(int(enabled)))
-        await interaction.response.send_message(f"Word filter {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Word filter {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @modconfig.command(name="linkblock", description="Toggle link blocking.")
     @app_commands.checks.has_permissions(administrator=True)
     async def mc_linkblock(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "linkblock_enabled", str(int(enabled)))
-        await interaction.response.send_message(f"Link blocking {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Link blocking {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @modconfig.command(name="logging", description="Toggle moderation logging.")
     @app_commands.checks.has_permissions(administrator=True)
     async def mc_logging(self, interaction: discord.Interaction, enabled: bool) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "mod_logging_enabled", str(int(enabled)))
-        await interaction.response.send_message(f"Mod logging {'enabled' if enabled else 'disabled'}.", ephemeral=True)
+        await interaction.response.send_message(f"{CHECK_OK} Mod logging {'enabled' if enabled else 'disabled'}.", ephemeral=True)
 
     @modconfig.command(name="view", description="View all moderation config settings.")
     @app_commands.checks.has_permissions(moderate_members=True)
     async def mc_view(self, interaction: discord.Interaction) -> None:
         if not interaction.guild:
-            await interaction.response.send_message("Server only.", ephemeral=True); return
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True); return
         gid = interaction.guild.id
         settings = {
             "Anti-Spam": await self.bot.db.get_guild_setting(gid, "antispam_enabled"),
@@ -638,7 +640,7 @@ class ModerationCog(commands.Cog):
             "Link Blocking": await self.bot.db.get_guild_setting(gid, "linkblock_enabled"),
             "Mod Logging": await self.bot.db.get_guild_setting(gid, "mod_logging_enabled"),
         }
-        embed = discord.Embed(title="Moderation Configuration", color=discord.Color.orange())
+        embed = discord.Embed(title=f"{CHECK_OK} Moderation Configuration", color=discord.Color.orange())
         for name, val in settings.items():
             embed.add_field(name=name, value="✅ On" if val == "1" else "❌ Off", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -675,10 +677,10 @@ class ModerationCog(commands.Cog):
     ) -> None:
         if isinstance(error, app_commands.MissingPermissions):
             await interaction.response.send_message(
-                "You don't have the required moderation permissions.", ephemeral=True
+                f"{CROSS_NO} You don't have the required moderation permissions.", ephemeral=True
             )
             return
-        await interaction.response.send_message(f"Moderation command failed: `{error}`", ephemeral=True)
+        await interaction.response.send_message(f"{CROSS_NO} Moderation command failed: `{error}`", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
