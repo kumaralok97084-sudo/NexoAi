@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot import build_system_prompt
+from cogs.emojis import CROSS_NO
 
 AGENT_PRESETS: dict[str, dict[str, str]] = {
     "nexo-fast": {
@@ -161,6 +162,11 @@ class AICog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
         gen_model = model or self.bot.settings.image_gen_model
+        provider = getattr(self.bot.settings, "image_gen_provider", "openrouter")
+
+        if provider == "pollinations" and mode in ("variation", "edit"):
+            await interaction.followup.send(f"{CROSS_NO} Variation/edit mode is not supported with the current image provider.", ephemeral=True)
+            return
 
         if image_url and mode in ("variation", "edit"):
             self.bot.image_gen.model = gen_model  # type: ignore[attr-defined]

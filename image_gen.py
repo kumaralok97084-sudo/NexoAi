@@ -4,12 +4,22 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
+POLLINATIONS_IMAGE_BASE = "https://image.pollinations.ai/prompt"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+
+POLLINATIONS_MODELS = frozenset({
+    "flux",
+    "flux-pro",
+    "turbo",
+    "dreamshaper",
+    "realistic-vision",
+})
 
 CHAT_IMAGE_MODELS = frozenset({
     "black-forest-labs/flux-schnell",
@@ -31,6 +41,11 @@ DEDICATED_IMAGE_MODELS = frozenset({
 })
 
 RECOMMENDED_MODELS = [
+    "flux",
+    "flux-pro",
+    "turbo",
+    "dreamshaper",
+    "realistic-vision",
     "black-forest-labs/flux-schnell",
     "black-forest-labs/flux-dev",
     "black-forest-labs/flux-1.1-pro",
@@ -57,6 +72,19 @@ class ImageGenerator:
         self.model = model
         self.provider = provider
         self._client: httpx.AsyncClient | None = None
+
+    def _build_pollinations_url(self, prompt: str, size: str | None = None) -> str:
+        params = []
+        model_lower = self.model.lower()
+        if model_lower in POLLINATIONS_MODELS:
+            params.append(f"model={model_lower}")
+        if size:
+            parts = size.lower().split("x")
+            if len(parts) == 2:
+                params.append(f"width={parts[0]}")
+                params.append(f"height={parts[1]}")
+        param_str = f"?{'&'.join(params)}" if params else ""
+        return f"{POLLINATIONS_IMAGE_BASE}/{quote(prompt[:2000])}{param_str}"
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -89,6 +117,14 @@ class ImageGenerator:
         image_url: str | None = None,
         mode: str = "generate",
     ) -> dict[str, Any]:
+        if self.provider == "pollinations":
+            url = self._build_pollinations_url(prompt, size)
+            return {
+                "url": url,
+                "revised_prompt": prompt,
+                "model": self.model,
+            }
+
         if not self.api_key:
             return {"error": "Image generation API key is not configured."}
 

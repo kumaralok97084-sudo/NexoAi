@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+import math
 import random
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -9,7 +12,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.emojis import BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, DAILY, DICE, EARNED, GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN, JOB_CHEF, JOB_CODER, JOB_CONSULTANT, JOB_DESIGNER, JOB_DOCTOR, JOB_ENGINEER, JOB_FARMER, JOB_FISHER, JOB_MINER, JOB_TEACHER, LOSE, SHOP, SILVER, SLOT_DIAMOND, SPENT, STREAK, WIN, WITHDRAW, WORK_BRIEF
+from cogs.emojis import (
+    BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, DAILY, DICE, EARNED,
+    GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN,
+    INVEST, JOB_CHEF, JOB_CODER, JOB_CONSULTANT, JOB_DESIGNER,
+    JOB_DOCTOR, JOB_ENGINEER, JOB_FARMER, JOB_FISHER, JOB_MINER,
+    JOB_TEACHER, LOSE, SHOP, SILVER, SLOT_DIAMOND, SPENT,
+    STREAK, WIN, WITHDRAW, WORK_BRIEF,
+)
 
 DAILY_AMOUNT = 100
 STREAK_BONUS = 25
@@ -159,6 +169,37 @@ class EconomyCog(commands.Cog):
             return max(0, int(cooldown - elapsed))
         except (ValueError, TypeError, OSError):
             return 0
+
+    # ── Autocomplete helpers ──
+
+    async def _amount_ac(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        opts = ["10", "50", "100", "500", "1000", "5000", "10000", "all"]
+        return [app_commands.Choice(name=o, value=o) for o in opts if current.lower() in o.lower()][:25]
+
+    async def _shop_item_ac(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[int]]:
+        if not interaction.guild:
+            return []
+        async with aiosqlite.connect(self.bot.db.db_path) as db:
+            async with db.execute(
+                "SELECT id, name, price FROM shop_items WHERE guild_id = ?", (interaction.guild.id,)
+            ) as cur:
+                items = await cur.fetchall()
+        choices = []
+        for iid, name, price in items:
+            label = f"#{iid} {name} (${price})"
+            if current.lower() in label.lower() or current.isdigit() and current in str(iid):
+                choices.append(app_commands.Choice(name=label[:100], value=iid))
+        return choices[:25]
+
+    async def _stock_ac(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        await self._fluctuate_prices()
+        stocks = await self.bot.db.get_all_stocks()
+        choices = []
+        for s in stocks:
+            label = f"{s['symbol']} — ${s['current_price']:.2f} ({s['name']})"
+            if current.lower() in s["symbol"].lower() or current.lower() in s["name"].lower():
+                choices.append(app_commands.Choice(name=label[:100], value=s["symbol"]))
+        return choices[:25]
 
     # ── Bal ──
 
@@ -323,6 +364,7 @@ class EconomyCog(commands.Cog):
     # ── Gamble ──
 
     @app_commands.command(name="gamble", description="Gamble your coins (50/50 double or nothing).")
+    @app_commands.autocomplete(amount=_amount_ac)
     async def gamble(self, interaction: discord.Interaction, amount: int) -> None:
         if amount < 5:
             await interaction.response.send_message(f"{CROSS_NO} Minimum gamble is **5** coins.", ephemeral=True)
@@ -419,6 +461,7 @@ class EconomyCog(commands.Cog):
     # ── Pay ──
 
     @app_commands.command(name="pay", description="Send coins to another user.")
+    @app_commands.autocomplete(amount=_amount_ac)
     async def pay(self, interaction: discord.Interaction, user: discord.User, amount: int) -> None:
         if amount < 1:
             await interaction.response.send_message(f"{CROSS_NO} Amount must be at least 1.", ephemeral=True)
@@ -452,6 +495,7 @@ class EconomyCog(commands.Cog):
     # ── Bank ──
 
     @app_commands.command(name="deposit", description="Deposit coins into your bank.")
+    @app_commands.autocomplete(amount=_amount_ac)
     async def deposit(self, interaction: discord.Interaction, amount: str) -> None:
         uid = interaction.user.id
         if amount.lower() == "all":
@@ -477,6 +521,7 @@ class EconomyCog(commands.Cog):
         await interaction.response.send_message(f"{WITHDRAW} Deposited **{amt}** coins. Wallet: **{new_wallet}** | Bank: **{new_bank}**")
 
     @app_commands.command(name="withdraw", description="Withdraw coins from your bank.")
+    @app_commands.autocomplete(amount=_amount_ac)
     async def withdraw(self, interaction: discord.Interaction, amount: str) -> None:
         uid = interaction.user.id
         if amount.lower() == "all":
@@ -579,6 +624,7 @@ class EconomyCog(commands.Cog):
     # ── Gift ──
 
     @app_commands.command(name="gift", description="Gift coins to another user.")
+    @app_commands.autocomplete(amount=_amount_ac)
     async def gift(self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, 100000]) -> None:
         if user.id == interaction.user.id:
             await interaction.response.send_message(f"{CROSS_NO} You can't gift yourself.", ephemeral=True); return
@@ -620,6 +666,7 @@ class EconomyCog(commands.Cog):
         await interaction.response.send_message(f"**{SHOP} Server Shop**\n" + "\n".join(lines))
 
     @shop.command(name="buy", description="Buy an item from the shop.")
+    @app_commands.autocomplete(item_id=_shop_item_ac)
     async def shop_buy(self, interaction: discord.Interaction, item_id: int) -> None:
         if not interaction.guild:
             await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
@@ -690,6 +737,156 @@ class EconomyCog(commands.Cog):
             await db.execute("DELETE FROM shop_items WHERE id = ? AND guild_id = ?", (item_id, interaction.guild.id))
             await db.commit()
         await interaction.response.send_message(f"{CHECK_OK} Removed item `#{item_id}`.", ephemeral=True)
+
+    # ══════════════════════════════════════════════════════════════
+    #  STOCK MARKET
+    # ══════════════════════════════════════════════════════════════
+
+    async def _fluctuate_prices(self) -> None:
+        now = time.time()
+        for s in await self.bot.db.get_all_stocks():
+            last = s["last_updated"] or 0
+            elapsed = now - last
+            if elapsed < 30:
+                continue
+            price = s["current_price"]
+            vol = s["volatility"]
+            dt = min(elapsed / 3600, 1.0)
+            mu = 0.0001 * dt
+            sigma = vol * math.sqrt(dt)
+            change = random.gauss(mu, sigma)
+            price = price * (1 + change)
+            price = max(price, s["base_price"] * 0.05)
+            await self.bot.db.update_stock_price(s["symbol"], round(price, 2))
+
+    async def _get_stock_price(self, symbol: str) -> dict[str, Any] | None:
+        await self._fluctuate_prices()
+        return await self.bot.db.get_stock(symbol)
+
+    @app_commands.command(name="invest", description="Buy shares of a stock.")
+    @app_commands.describe(stock="Stock symbol to buy", amount="Coins to invest")
+    @app_commands.autocomplete(stock=_stock_ac)
+    async def invest(self, interaction: discord.Interaction, stock: str, amount: int) -> None:
+        if amount < 10:
+            await interaction.response.send_message(f"{CROSS_NO} Minimum invest is 10 coins.", ephemeral=True)
+            return
+        s = await self._get_stock_price(stock.upper())
+        if not s:
+            await interaction.response.send_message(f"{CROSS_NO} Unknown stock.", ephemeral=True)
+            return
+        uid = interaction.user.id
+        d = await self._read(uid)
+        if amount > d["balance"]:
+            await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
+            return
+        price = s["current_price"]
+        shares = int(amount / price)
+        if shares < 1:
+            await interaction.response.send_message(f"{CROSS_NO} ${price:.2f} per share — need at least ${price:.0f} to buy 1 share.", ephemeral=True)
+            return
+        cost = int(shares * price)
+        ok, new_bal = await self._sub_balance(uid, cost)
+        if not ok:
+            await interaction.response.send_message(f"{CROSS_NO} Not enough coins.", ephemeral=True)
+            return
+        await self.bot.db.buy_stock(uid, stock.upper(), shares, price)
+        embed = discord.Embed(
+            title=f"{INVEST} Investment",
+            description=f"Bought **{shares}** shares of **{s['symbol']}** ({s['name']})",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Price/Share", value=f"${price:.2f}", inline=True)
+        embed.add_field(name="Total Cost", value=f"${cost:,}", inline=True)
+        embed.add_field(name="Balance", value=f"${new_bal:,}", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="sell", description="Sell shares of a stock.")
+    @app_commands.describe(stock="Stock symbol to sell", shares="Number of shares to sell")
+    @app_commands.autocomplete(stock=_stock_ac)
+    async def sell(self, interaction: discord.Interaction, stock: str, shares: int) -> None:
+        if shares < 1:
+            await interaction.response.send_message(f"{CROSS_NO} Must sell at least 1 share.", ephemeral=True)
+            return
+        uid = interaction.user.id
+        holding = await self.bot.db.get_user_stock(uid, stock.upper())
+        if not holding or holding["shares"] < shares:
+            await interaction.response.send_message(f"{CROSS_NO} You don't have that many shares.", ephemeral=True)
+            return
+        s = await self._get_stock_price(stock.upper())
+        if not s:
+            await interaction.response.send_message(f"{CROSS_NO} Unknown stock.", ephemeral=True)
+            return
+        ok = await self.bot.db.sell_stock(uid, stock.upper(), shares)
+        if not ok:
+            await interaction.response.send_message(f"{CROSS_NO} Sale failed.", ephemeral=True)
+            return
+        price = s["current_price"]
+        proceeds = int(shares * price)
+        new_bal = await self._add_balance(uid, proceeds)
+        embed = discord.Embed(
+            title=f"{INVEST} Sale",
+            description=f"Sold **{shares}** shares of **{s['symbol']}** ({s['name']})",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="Price/Share", value=f"${price:.2f}", inline=True)
+        embed.add_field(name="Proceeds", value=f"${proceeds:,}", inline=True)
+        embed.add_field(name="Balance", value=f"${new_bal:,}", inline=False)
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="stocks", description="View all stock prices.")
+    async def stocks(self, interaction: discord.Interaction) -> None:
+        await self._fluctuate_prices()
+        all_s = await self.bot.db.get_all_stocks()
+        if not all_s:
+            await interaction.response.send_message(f"{CROSS_NO} No stocks available.", ephemeral=True)
+            return
+        embed = discord.Embed(title=f"{INVEST} Stock Market", color=discord.Color.blue())
+        embed.set_footer(text="Prices fluctuate every 30s")
+        for s in all_s:
+            price = s["current_price"]
+            bp = s["base_price"]
+            pct = ((price - bp) / bp) * 100
+            arrow = "📈" if pct >= 0 else "📉"
+            embed.add_field(
+                name=f"{s['symbol']} {arrow}",
+                value=f"${price:.2f} ({pct:+.1f}%)",
+                inline=True,
+            )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="portfolio", description="View your stock holdings.")
+    async def portfolio(self, interaction: discord.Interaction) -> None:
+        uid = interaction.user.id
+        await self._fluctuate_prices()
+        holdings = await self.bot.db.get_user_portfolio(uid)
+        if not holdings:
+            await interaction.response.send_message(f"{CROSS_NO} You don't own any stocks.", ephemeral=True)
+            return
+        total_value = 0
+        total_cost = 0
+        lines = []
+        for h in holdings:
+            value = int(h["shares"] * h["current_price"])
+            cost = int(h["shares"] * h["bought_at"])
+            profit = value - cost
+            arrow = "📈" if profit >= 0 else "📉"
+            pct = ((h["current_price"] - h["bought_at"]) / h["bought_at"]) * 100
+            lines.append(
+                f"**{h['symbol']}** — {h['shares']} shares\n"
+                f"  Buy: ${h['bought_at']:.2f} | Now: ${h['current_price']:.2f} {arrow}\n"
+                f"  Value: ${value:,} ({pct:+.1f}%)"
+            )
+            total_value += value
+            total_cost += cost
+        embed = discord.Embed(
+            title=f"{interaction.user.display_name}'s Portfolio",
+            description="\n".join(lines),
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Total Value", value=f"${total_value:,}", inline=True)
+        embed.add_field(name="Total Cost", value=f"${total_cost:,}", inline=True)
+        embed.add_field(name="Profit/Loss", value=f"${total_value - total_cost:,}", inline=True)
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -262,6 +262,34 @@ class Database:
             ]:
                 await db.execute(extra_sql)
 
+            # New tables for moderation_ext, music, and playlists
+            for new_sql in [
+                """CREATE TABLE IF NOT EXISTS guild_config (
+                    guild_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT,
+                    PRIMARY KEY (guild_id, key))""",
+                """CREATE TABLE IF NOT EXISTS automod_bypass (
+                    guild_id INTEGER NOT NULL, role_id INTEGER NOT NULL,
+                    PRIMARY KEY (guild_id, role_id))""",
+                """CREATE TABLE IF NOT EXISTS music_playlists (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL, songs TEXT DEFAULT '[]',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""",
+            ]:
+                await db.execute(new_sql)
+
+            # Stock market tables
+            for stock_sql in [
+                """CREATE TABLE IF NOT EXISTS stocks (
+                    symbol TEXT PRIMARY KEY, name TEXT NOT NULL,
+                    base_price REAL NOT NULL, current_price REAL NOT NULL,
+                    volatility REAL DEFAULT 0.02, last_updated REAL DEFAULT 0)""",
+                """CREATE TABLE IF NOT EXISTS user_stocks (
+                    user_id INTEGER NOT NULL, symbol TEXT NOT NULL,
+                    shares INTEGER NOT NULL, bought_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, symbol))""",
+            ]:
+                await db.execute(stock_sql)
+
             # Backward-compatible migration for older databases.
             for col in ("agent_model", "welcome_channel", "welcome_message", "leave_channel", "leave_message", "autorole_id",
                         "modlog_channel", "raid_mode", "antispam_enabled", "filter_mode"):
@@ -291,6 +319,89 @@ class Database:
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else None
+
+    # ── Guild Config (key-value) ──
+    async def set_config(self, guild_id: int, key: str, value: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO guild_config (guild_id, key, value) VALUES (?, ?, ?)",
+                (guild_id, key, str(value)),
+            )
+            await db.commit()
+
+    async def get_config(self, guild_id: int, key: str) -> str | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT value FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key)
+            ) as cur:
+                row = await cur.fetchone()
+                return row[0] if row else None
+
+    async def del_config(self, guild_id: int, key: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM guild_config WHERE guild_id = ? AND key = ?", (guild_id, key))
+            await db.commit()
+
+    async def get_all_config(self, guild_id: int) -> dict[str, str]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT key, value FROM guild_config WHERE guild_id = ?", (guild_id,)
+            ) as cur:
+                rows = await cur.fetchall()
+                return {k: v for k, v in rows}
+
+    # ── AutoMod Bypass ──
+    async def add_bypass_role(self, guild_id: int, role_id: int) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("INSERT OR IGNORE INTO automod_bypass (guild_id, role_id) VALUES (?, ?)", (guild_id, role_id))
+            await db.commit()
+
+    async def remove_bypass_role(self, guild_id: int, role_id: int) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM automod_bypass WHERE guild_id = ? AND role_id = ?", (guild_id, role_id))
+            await db.commit()
+
+    async def get_bypass_roles(self, guild_id: int) -> list[int]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT role_id FROM automod_bypass WHERE guild_id = ?", (guild_id,)) as cur:
+                rows = await cur.fetchall()
+                return [r[0] for r in rows]
+
+    # ── Music Playlists ──
+    async def create_playlist(self, user_id: int, name: str) -> int:
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "INSERT INTO music_playlists (user_id, name) VALUES (?, ?)", (user_id, name)
+            )
+            await db.commit()
+            return cur.lastrowid
+
+    async def get_playlist(self, playlist_id: int) -> dict | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT id, user_id, name, songs FROM music_playlists WHERE id = ?", (playlist_id,)
+            ) as cur:
+                row = await cur.fetchone()
+                return {"id": row[0], "user_id": row[1], "name": row[2], "songs": row[3]} if row else None
+
+    async def get_user_playlists(self, user_id: int) -> list[dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT id, user_id, name, songs FROM music_playlists WHERE user_id = ? ORDER BY created_at DESC",
+                (user_id,),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [{"id": r[0], "user_id": r[1], "name": r[2], "songs": r[3]} for r in rows]
+
+    async def update_playlist_songs(self, playlist_id: int, songs_json: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE music_playlists SET songs = ? WHERE id = ?", (songs_json, playlist_id))
+            await db.commit()
+
+    async def delete_playlist(self, playlist_id: int) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM music_playlists WHERE id = ?", (playlist_id,))
+            await db.commit()
 
     async def add_message(
         self, guild_id: int, channel_id: int, user_id: int, role: str, content: str
@@ -786,6 +897,125 @@ class Database:
             counts["reminders"] = cursor.rowcount
             await db.commit()
         return counts
+
+    # ── Stock Market ──
+
+    STOCK_DEFAULTS: list[tuple[str, str, float, float]] = [
+        ("NEXO", "NexoAi Corp", 150.0, 0.03),
+        ("BTC", "Bitcoin", 85000.0, 0.05),
+        ("ETH", "Ethereum", 4200.0, 0.04),
+        ("SOL", "Solana", 180.0, 0.06),
+        ("NVDA", "NVIDIA", 980.0, 0.035),
+        ("AAPL", "Apple Inc", 240.0, 0.025),
+        ("MSFT", "Microsoft", 460.0, 0.02),
+        ("GOOGL", "Alphabet", 190.0, 0.025),
+        ("AMZN", "Amazon", 200.0, 0.03),
+        ("META", "Meta", 560.0, 0.035),
+        ("TSLA", "Tesla", 350.0, 0.06),
+        ("AMD", "AMD", 170.0, 0.04),
+        ("PLTR", "Palantir", 95.0, 0.05),
+        ("COIN", "Coinbase", 280.0, 0.055),
+        ("HOOD", "Robinhood", 65.0, 0.05),
+        ("AI", "C3.ai", 45.0, 0.06),
+        ("SNOW", "Snowflake", 190.0, 0.04),
+        ("RBLX", "Roblox", 55.0, 0.045),
+        ("UBER", "Uber", 78.0, 0.035),
+        ("SNAP", "Snapchat", 18.0, 0.055),
+    ]
+
+    async def init_stocks(self) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            for sym, name, price, vol in self.STOCK_DEFAULTS:
+                await db.execute(
+                    """INSERT OR IGNORE INTO stocks (symbol, name, base_price, current_price, volatility)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (sym, name, price, price, vol),
+                )
+            await db.commit()
+
+    async def get_stock(self, symbol: str) -> dict[str, Any] | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT symbol, name, base_price, current_price, volatility, last_updated FROM stocks WHERE symbol = ?",
+                (symbol,),
+            ) as cur:
+                row = await cur.fetchone()
+        if not row:
+            return None
+        return {"symbol": row[0], "name": row[1], "base_price": row[2],
+                "current_price": row[3], "volatility": row[4], "last_updated": row[5]}
+
+    async def get_all_stocks(self) -> list[dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT symbol, name, base_price, current_price, volatility, last_updated FROM stocks ORDER BY symbol"
+            ) as cur:
+                rows = await cur.fetchall()
+        return [{"symbol": r[0], "name": r[1], "base_price": r[2],
+                 "current_price": r[3], "volatility": r[4], "last_updated": r[5]} for r in rows]
+
+    async def update_stock_price(self, symbol: str, new_price: float) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "UPDATE stocks SET current_price = ?, last_updated = ? WHERE symbol = ?",
+                (new_price, __import__("time").time(), symbol),
+            )
+            await db.commit()
+
+    async def get_user_stock(self, user_id: int, symbol: str) -> dict[str, Any] | None:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT symbol, shares, bought_at FROM user_stocks WHERE user_id = ? AND symbol = ?",
+                (user_id, symbol),
+            ) as cur:
+                row = await cur.fetchone()
+        if not row:
+            return None
+        return {"symbol": row[0], "shares": row[1], "bought_at": row[2]}
+
+    async def get_user_portfolio(self, user_id: int) -> list[dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT u.symbol, u.shares, u.bought_at, s.current_price, s.name "
+                "FROM user_stocks u JOIN stocks s ON u.symbol = s.symbol WHERE u.user_id = ?",
+                (user_id,),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [{"symbol": r[0], "shares": r[1], "bought_at": r[2],
+                 "current_price": r[3], "name": r[4]} for r in rows]
+
+    async def buy_stock(self, user_id: int, symbol: str, shares: int, price: float) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """INSERT INTO user_stocks (user_id, symbol, shares, bought_at) VALUES (?, ?, ?, ?)
+                   ON CONFLICT(user_id, symbol) DO UPDATE SET
+                   shares = shares + ?, bought_at = ?""",
+                (user_id, symbol, shares, price, shares, price),
+            )
+            await db.commit()
+
+    async def sell_stock(self, user_id: int, symbol: str, shares: int) -> bool:
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "SELECT shares FROM user_stocks WHERE user_id = ? AND symbol = ?",
+                (user_id, symbol),
+            )
+            row = await cur.fetchone()
+            if not row or row[0] < shares:
+                return False
+            new_shares = row[0] - shares
+            if new_shares == 0:
+                await db.execute(
+                    "DELETE FROM user_stocks WHERE user_id = ? AND symbol = ?",
+                    (user_id, symbol),
+                )
+            else:
+                await db.execute(
+                    "UPDATE user_stocks SET shares = ? WHERE user_id = ? AND symbol = ?",
+                    (new_shares, user_id, symbol),
+                )
+            await db.commit()
+            return True
 
     @staticmethod
     def safe_json_load(raw: str | None) -> dict[str, Any] | list[Any]:

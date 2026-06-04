@@ -177,6 +177,11 @@ _CUSTOM: dict[str, str] = {
     'WOULDYOU': '<:WOULDYOU:1511986433857159178>',
     'XKCD': '<:XKCD:1511986435417313366>',
     'YOUTUBE': '<:YOUTUBE:1511986438818758748>',
+    'VOLUME': '<:VOLUME:1511993736534687878>',
+    'LOOP': '<:LOOP:1511993740267618439>',
+    'SHUFFLE': '<:SHUFFLE:1511993743606026320>',
+    'SAVE_MUSIC': '<:SAVE_MUSIC:1511993747003670598>',
+    'PLAYLIST': '<:PLAYLIST:1511993751055106048>',
 }
 
 
@@ -334,6 +339,11 @@ QUOTE           = _emoji("QUOTE", "\U0001f4ac")
 RADIO           = _emoji("RADIO", "\U0001f4fb")
 SOUNDBOARD      = _emoji("SOUNDBOARD", "\U0001f399")
 SPOTIFY         = _emoji("SPOTIFY", "\U0001f3b5")
+VOLUME          = _emoji("VOLUME", "\U0001f509")
+LOOP            = _emoji("LOOP", "\U0001f501")
+SHUFFLE         = _emoji("SHUFFLE", "\U0001f500")
+SAVE_MUSIC      = _emoji("SAVE_MUSIC", "\U0001f4be")
+PLAYLIST        = _emoji("PLAYLIST", "\U0001f4cb")
 
 # ── Integration ──
 GITHUB          = _emoji("GITHUB", "\U0001f5a5")

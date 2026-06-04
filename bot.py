@@ -154,9 +154,11 @@ async def on_interaction(interaction: discord.Interaction) -> None:
 @bot.event
 async def setup_hook() -> None:
     await bot.db.init()
+    await bot.db.init_stocks()
 
     for extension in (
-        "cogs.ai", "cogs.admin", "cogs.general", "cogs.moderation", "cogs.hosting", "cogs.utility",
+        "cogs.ai", "cogs.admin", "cogs.general", "cogs.moderation", "cogs.moderation_ext",
+        "cogs.hosting", "cogs.utility",
         "cogs.economy",
         "cogs.utility_ext",
         "cogs.features_ext",
