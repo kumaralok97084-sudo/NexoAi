@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.emojis import CHECK_OK, COINFLIP, CROSS_NO, DICE, EIGHT_BALL, GIVEAWAY, REMINDER, ROCK, SCISSORS, SLOT_CHERRY, SLOT_DIAMOND, SLOT_GRAPE, SLOT_LEMON, SLOT_MACHINE, SLOT_ORANGE, TARGET_GUESS, TRANSCRIPT_FILE, TRIVIA_GAME
+from cogs.emojis import CHECK_OK, COINFLIP, CROSS_NO, DICE, EIGHT_BALL, GIVEAWAY, PAPER, REMINDER, ROCK, SCISSORS, SLOT_CHERRY, SLOT_DIAMOND, SLOT_GRAPE, SLOT_LEMON, SLOT_MACHINE, SLOT_ORANGE, TARGET_GUESS, TRIVIA_GAME
 
 RPS_CHOICES = ["rock", "paper", "scissors"]
 RPS_BEATS = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
@@ -63,7 +63,7 @@ class GamesCog(commands.Cog):
     @app_commands.describe(choice="Choose rock, paper, or scissors")
     @app_commands.choices(choice=[
         app_commands.Choice(name=f"Rock {ROCK}", value="rock"),
-        app_commands.Choice(name=f"Paper {TRANSCRIPT_FILE}", value="paper"),
+        app_commands.Choice(name=f"Paper {PAPER}", value="paper"),
         app_commands.Choice(name=f"Scissors {SCISSORS}", value="scissors"),
     ])
     async def rps(self, interaction: discord.Interaction, choice: str) -> None:
@@ -169,7 +169,10 @@ class GamesCog(commands.Cog):
         try:
             reaction, _ = await self.bot.wait_for("reaction_add", timeout=30.0, check=check)
         except asyncio.TimeoutError:
-            await msg.clear_reactions()
+            try:
+                await msg.clear_reactions()
+            except discord.Forbidden:
+                pass
             await msg.reply(f"{REMINDER} Time's up! The answer was **{q['a']}**.")
             return
 
@@ -179,7 +182,10 @@ class GamesCog(commands.Cog):
         else:
             await msg.reply(f"{CROSS_NO} **Wrong!** The correct answer was **{q['a']}**.")
 
-        await msg.clear_reactions()
+        try:
+            await msg.clear_reactions()
+        except discord.Forbidden:
+            pass
 
     @app_commands.command(name="guess", description="Guess a number between 1 and 10.")
     async def guess(self, interaction: discord.Interaction, number: app_commands.Range[int, 1, 10]) -> None:

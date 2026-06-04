@@ -996,6 +996,48 @@ class ModerationExtCog(commands.Cog):
         await interaction.followup.send(f"{CHECK_OK} Archived {archived} threads.")
 
     # ══════════════════════════════════════════════════════════════
+    #  MISSING COMMANDS
+    # ══════════════════════════════════════════════════════════════
+
+    @app_commands.command(name="tempban", description="Temporarily ban a member for a set time.")
+    @app_commands.checks.has_permissions(ban_members=True)
+    async def tempban(self, interaction: discord.Interaction, user: discord.User, days: int, reason: str = "") -> None:
+        if not interaction.guild:
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
+            return
+        try:
+            await interaction.guild.ban(user, reason=f"Tempban {days}d: {reason}"[:512], delete_message_days=0)
+            await self.bot.db.add_moderation_log(interaction.guild.id, user.id, "tempban", reason)
+            expires = datetime.now(timezone.utc).timestamp() + days * 86400
+            async with aiosqlite.connect(self.bot.db.db_path) as db:
+                await db.execute(
+                    "INSERT OR REPLACE INTO temp_bans (guild_id, user_id, ends_at, reason) VALUES (?, ?, ?, ?)",
+                    (interaction.guild.id, user.id, datetime.fromtimestamp(expires).isoformat(), reason),
+                )
+                await db.commit()
+            await interaction.response.send_message(f"{CHECK_OK} Temp-banned {user.mention} for **{days}d**. Reason: {reason or 'No reason given.'}")
+        except discord.Forbidden:
+            await interaction.response.send_message(f"{CROSS_NO} I don't have permission to ban that user.", ephemeral=True)
+
+    @app_commands.command(name="messagelogs", description="View recent deleted/edited messages in this channel.")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def messagelogs(self, interaction: discord.Interaction, limit: int = 20) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message(f"{CROSS_NO} Server only.", ephemeral=True)
+            return
+        async with aiosqlite.connect(self.bot.db.db_path) as db:
+            async with db.execute(
+                "SELECT action, content, created_at FROM message_logs WHERE guild_id = ? ORDER BY id DESC LIMIT ?",
+                (interaction.guild.id, min(limit, 50)),
+            ) as cur:
+                rows = await cur.fetchall()
+        if not rows:
+            await interaction.response.send_message(f"{CROSS_NO} No message logs found.", ephemeral=True)
+            return
+        lines = [f"`{r[2][:16]}` **{r[0]}**: {r[1][:100]}" for r in rows]
+        await interaction.response.send_message(f"**📋 Recent Message Logs** ({len(rows)})\n" + "\n".join(lines))
+
+    # ══════════════════════════════════════════════════════════════
     #  ERROR HANDLING
     # ══════════════════════════════════════════════════════════════
 

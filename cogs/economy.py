@@ -13,8 +13,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from cogs.emojis import (
-    BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, DAILY, DICE, EARNED,
-    GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN,
+    BEGGING, BRONZE, CHECK_OK, COOLDOWN, CRIME, CROSS_NO, DAILY, DICE,
+    EARNED, GIVEAWAY, GIVEAWAY_WIN, GOLD, HELP_ECONOMY, HELP_FUN,
     INVEST, JOB_CHEF, JOB_CODER, JOB_CONSULTANT, JOB_DESIGNER,
     JOB_DOCTOR, JOB_ENGINEER, JOB_FARMER, JOB_FISHER, JOB_MINER,
     JOB_TEACHER, LOSE, SHOP, SILVER, SLOT_DIAMOND, SPENT,
@@ -70,93 +70,102 @@ class EconomyCog(commands.Cog):
 
     # ── Atomic helpers ──
 
-    async def _ensure_user(self, uid: int) -> None:
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            await db.commit()
+    def _conn(self) -> aiosqlite.Connection:
+        return aiosqlite.connect(self.bot.db.db_path)
 
-    async def _read(self, uid: int) -> dict[str, Any]:
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            async with db.execute(
-                "SELECT balance, bank, daily_streak, last_daily, last_work, "
-                "last_crime, last_beg, last_rob, total_earned, total_spent "
-                "FROM economy WHERE user_id = ?", (uid,)
-            ) as cursor:
-                row = await cursor.fetchone()
+    async def _ensure_user(self, uid: int, db: aiosqlite.Connection | None = None) -> None:
+        if db is None:
+            async with self._conn() as c:
+                await c.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+                await c.commit()
+        else:
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+
+    async def _read(self, uid: int, db: aiosqlite.Connection | None = None) -> dict[str, Any]:
+        if db is None:
+            async with self._conn() as c:
+                return await self._read(uid, c)
+        async with db.execute(
+            "SELECT balance, bank, daily_streak, last_daily, last_work, "
+            "last_crime, last_beg, last_rob, total_earned, total_spent, "
+            "last_weekly, last_search FROM economy WHERE user_id = ?", (uid,)
+        ) as cursor:
+            row = await cursor.fetchone()
         if not row:
             return {"balance": 0, "bank": 0, "daily_streak": 0,
                     "last_daily": "", "last_work": "", "last_crime": "",
-                    "last_beg": "", "last_rob": "", "total_earned": 0, "total_spent": 0}
+                    "last_beg": "", "last_rob": "", "total_earned": 0, "total_spent": 0,
+                    "last_weekly": "", "last_search": ""}
         return {"balance": row[0], "bank": row[1], "daily_streak": row[2],
                 "last_daily": row[3] or "", "last_work": row[4] or "",
                 "last_crime": row[5] or "", "last_beg": row[6] or "",
-                "last_rob": row[7] or "", "total_earned": row[8] or 0, "total_spent": row[9] or 0}
+                "last_rob": row[7] or "", "total_earned": row[8] or 0, "total_spent": row[9] or 0,
+                "last_weekly": row[10] or "", "last_search": row[11] or ""}
 
-    async def _add_balance(self, uid: int, amount: int) -> int:
-        """Atomically add coins to wallet + track earned. Returns new balance."""
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            await db.execute(
-                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?",
-                (amount, amount, uid),
-            )
-            await db.commit()
-            async with db.execute("SELECT balance FROM economy WHERE user_id = ?", (uid,)) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else 0
+    async def _add_balance(self, uid: int, amount: int, db: aiosqlite.Connection | None = None) -> int:
+        if db is None:
+            async with self._conn() as c:
+                return await self._add_balance(uid, amount, c)
+        await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+        await db.execute(
+            "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?",
+            (amount, amount, uid),
+        )
+        async with db.execute("SELECT balance FROM economy WHERE user_id = ?", (uid,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
-    async def _sub_balance(self, uid: int, amount: int) -> tuple[bool, int]:
-        """Atomically deduct coins if sufficient. Returns (succeeded, new_balance)."""
+    async def _sub_balance(self, uid: int, amount: int, db: aiosqlite.Connection | None = None) -> tuple[bool, int]:
         if amount <= 0:
-            return True, (await self._read(uid))["balance"]
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            cursor = await db.execute(
-                "UPDATE economy SET balance = balance - ?, total_spent = total_spent + ? WHERE user_id = ? AND balance >= ?",
-                (amount, amount, uid, amount),
-            )
-            await db.commit()
-            async with db.execute("SELECT balance FROM economy WHERE user_id = ?", (uid,)) as cursor2:
-                row = await cursor2.fetchone()
-                new_bal = row[0] if row else 0
-            return cursor.rowcount > 0, new_bal
+            bal = (await self._read(uid, db))["balance"]
+            return True, bal
+        if db is None:
+            async with self._conn() as c:
+                return await self._sub_balance(uid, amount, c)
+        await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+        cursor = await db.execute(
+            "UPDATE economy SET balance = balance - ?, total_spent = total_spent + ? WHERE user_id = ? AND balance >= ?",
+            (amount, amount, uid, amount),
+        )
+        async with db.execute("SELECT balance FROM economy WHERE user_id = ?", (uid,)) as c2:
+            row = await c2.fetchone()
+            new_bal = row[0] if row else 0
+        return cursor.rowcount > 0, new_bal
 
-    async def _add_bank(self, uid: int, amount: int) -> int:
-        """Atomically add coins to bank. Returns new bank balance."""
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            await db.execute(
-                "UPDATE economy SET bank = bank + ? WHERE user_id = ?", (amount, uid),
-            )
-            await db.commit()
-            async with db.execute("SELECT bank FROM economy WHERE user_id = ?", (uid,)) as cursor:
-                row = await cursor.fetchone()
-                return row[0] if row else 0
+    async def _add_bank(self, uid: int, amount: int, db: aiosqlite.Connection | None = None) -> int:
+        if db is None:
+            async with self._conn() as c:
+                return await self._add_bank(uid, amount, c)
+        await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+        await db.execute("UPDATE economy SET bank = bank + ? WHERE user_id = ?", (amount, uid))
+        async with db.execute("SELECT bank FROM economy WHERE user_id = ?", (uid,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else 0
 
-    async def _sub_bank(self, uid: int, amount: int) -> tuple[bool, int]:
-        """Atomically deduct from bank if sufficient. Returns (succeeded, new_bank)."""
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            cursor = await db.execute(
-                "UPDATE economy SET bank = bank - ? WHERE user_id = ? AND bank >= ?",
-                (amount, uid, amount),
-            )
-            await db.commit()
-            async with db.execute("SELECT bank FROM economy WHERE user_id = ?", (uid,)) as cursor2:
-                row = await cursor2.fetchone()
-                new_bank = row[0] if row else 0
-            return cursor.rowcount > 0, new_bank
+    async def _sub_bank(self, uid: int, amount: int, db: aiosqlite.Connection | None = None) -> tuple[bool, int]:
+        if db is None:
+            async with self._conn() as c:
+                return await self._sub_bank(uid, amount, c)
+        await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+        cursor = await db.execute(
+            "UPDATE economy SET bank = bank - ? WHERE user_id = ? AND bank >= ?",
+            (amount, uid, amount),
+        )
+        async with db.execute("SELECT bank FROM economy WHERE user_id = ?", (uid,)) as c2:
+            row = await c2.fetchone()
+            new_bank = row[0] if row else 0
+        return cursor.rowcount > 0, new_bank
 
-    async def _set_fields(self, uid: int, **kwargs: Any) -> None:
-        """Atomically set one or more fields."""
+    async def _set_fields(self, uid: int, db: aiosqlite.Connection | None = None, **kwargs: Any) -> None:
         if not kwargs:
             return
+        if db is None:
+            async with self._conn() as c:
+                return await self._set_fields(uid, c, **kwargs)
         sets = ", ".join(f"{k} = ?" for k in kwargs)
         params = list(kwargs.values()) + [uid]
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
-            await db.execute(f"UPDATE economy SET {sets} WHERE user_id = ?", params)
-            await db.commit()
+        await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (uid,))
+        await db.execute(f"UPDATE economy SET {sets} WHERE user_id = ?", params)
 
     def _cd_remaining(self, last_time: str, cooldown: int) -> int:
         if not last_time:
@@ -243,32 +252,35 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="daily", description="Claim your daily reward.")
     async def daily(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
-        d = await self._read(uid)
-        now = datetime.now(timezone.utc)
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            now = datetime.now(timezone.utc)
 
-        cd = self._cd_remaining(d["last_daily"], 86400)
-        if cd > 0:
-            h, r = divmod(cd, 3600)
-            m = r // 60
-            await interaction.response.send_message(f"{COOLDOWN} Come back in **{h}h {m}m**.", ephemeral=True)
-            return
+            cd = self._cd_remaining(d["last_daily"], 86400)
+            if cd > 0:
+                h, r = divmod(cd, 3600)
+                m = r // 60
+                await interaction.response.send_message(f"{COOLDOWN} Come back in **{h}h {m}m**.", ephemeral=True)
+                return
 
-        last = d["last_daily"]
-        if last:
-            try:
-                last_dt = datetime.fromisoformat(last)
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=timezone.utc)
-                streak = d["daily_streak"] + 1 if (now - last_dt).total_seconds() < 172800 else 1
-            except (ValueError, TypeError):
+            last = d["last_daily"]
+            if last:
+                try:
+                    last_dt = datetime.fromisoformat(last)
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    streak = d["daily_streak"] + 1 if (now - last_dt).total_seconds() < 172800 else 1
+                except (ValueError, TypeError):
+                    streak = 1
+            else:
                 streak = 1
-        else:
-            streak = 1
 
-        bonus = STREAK_BONUS * (streak - 1)
-        amount = DAILY_AMOUNT + bonus
-        new_bal = await self._add_balance(uid, amount)
-        await self._set_fields(uid, daily_streak=streak, last_daily=now.isoformat())
+            bonus = STREAK_BONUS * (streak - 1)
+            amount = DAILY_AMOUNT + bonus
+            await c.execute("BEGIN")
+            new_bal = await self._add_balance(uid, amount, c)
+            await self._set_fields(uid, c, daily_streak=streak, last_daily=now.isoformat())
+            await c.commit()
 
         embed = discord.Embed(title=f"{DAILY} Daily Reward", color=discord.Color.gold())
         embed.add_field(name="Claimed", value=f"{HELP_ECONOMY} {amount}", inline=True)
@@ -283,17 +295,20 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="work", description="Work to earn coins.")
     async def work(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
-        d = await self._read(uid)
-        cd = self._cd_remaining(d["last_work"], WORK_COOLDOWN)
-        if cd > 0:
-            m, s = divmod(cd, 60)
-            await interaction.response.send_message(f"{COOLDOWN} Rest **{m}m {s}s** before working again.", ephemeral=True)
-            return
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            cd = self._cd_remaining(d["last_work"], WORK_COOLDOWN)
+            if cd > 0:
+                m, s = divmod(cd, 60)
+                await interaction.response.send_message(f"{COOLDOWN} Rest **{m}m {s}s** before working again.", ephemeral=True)
+                return
 
-        emoji, job, wmin, wmax = random.choice(JOBS)
-        earnings = random.randint(wmin, wmax)
-        new_bal = await self._add_balance(uid, earnings)
-        await self._set_fields(uid, last_work=datetime.now(timezone.utc).isoformat())
+            emoji, job, wmin, wmax = random.choice(JOBS)
+            earnings = random.randint(wmin, wmax)
+            await c.execute("BEGIN")
+            new_bal = await self._add_balance(uid, earnings, c)
+            await self._set_fields(uid, c, last_work=datetime.now(timezone.utc).isoformat())
+            await c.commit()
 
         embed = discord.Embed(title=f"{emoji} Work Complete", color=discord.Color.green())
         embed.add_field(name="Job", value=job.capitalize(), inline=True)
@@ -306,18 +321,21 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="beg", description="Beg for some coins.")
     async def beg(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
-        d = await self._read(uid)
-        cd = self._cd_remaining(d["last_beg"], BEG_COOLDOWN)
-        if cd > 0:
-            await interaction.response.send_message(f"{COOLDOWN} Wait **{cd}s** before begging again.", ephemeral=True)
-            return
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            cd = self._cd_remaining(d["last_beg"], BEG_COOLDOWN)
+            if cd > 0:
+                await interaction.response.send_message(f"{COOLDOWN} Wait **{cd}s** before begging again.", ephemeral=True)
+                return
 
-        amount = random.randint(BEG_MIN, BEG_MAX)
-        donors = ["a kind stranger", "a rich tourist", "your grandma", "a generous bot",
-                  "a mysterious figure", "a charity fund", "a lost wallet"]
-        donor = random.choice(donors)
-        new_bal = await self._add_balance(uid, amount)
-        await self._set_fields(uid, last_beg=datetime.now(timezone.utc).isoformat())
+            amount = random.randint(BEG_MIN, BEG_MAX)
+            donors = ["a kind stranger", "a rich tourist", "your grandma", "a generous bot",
+                      "a mysterious figure", "a charity fund", "a lost wallet"]
+            donor = random.choice(donors)
+            await c.execute("BEGIN")
+            new_bal = await self._add_balance(uid, amount, c)
+            await self._set_fields(uid, c, last_beg=datetime.now(timezone.utc).isoformat())
+            await c.commit()
 
         embed = discord.Embed(
             title=f"{BEGGING} Begging",
@@ -332,31 +350,35 @@ class EconomyCog(commands.Cog):
     @app_commands.command(name="crime", description="Commit a crime for high risk/reward.")
     async def crime(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
-        d = await self._read(uid)
-        cd = self._cd_remaining(d["last_crime"], CRIME_COOLDOWN)
-        if cd > 0:
-            await interaction.response.send_message(f"{COOLDOWN} Wait **{cd}s**.", ephemeral=True)
-            return
-
-        success = random.random() < CRIME_SUCCESS_RATE
-        now = datetime.now(timezone.utc)
-        act = random.choice(CRIMES if success else CRIME_FAILS)
-
-        if success:
-            loot = random.randint(CRIME_MIN, CRIME_MAX)
-            new_bal = await self._add_balance(uid, loot)
-            desc = f"You {act} and got away with **{loot}** coins!"
-            color = discord.Color.green()
-        else:
-            fine = random.randint(CRIME_FAIL_PENALTY // 2, CRIME_FAIL_PENALTY)
-            ok, new_bal = await self._sub_balance(uid, fine)
-            if not ok:
-                await interaction.response.send_message(f"{CROSS_NO} You need coins in your wallet to attempt a crime.", ephemeral=True)
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            cd = self._cd_remaining(d["last_crime"], CRIME_COOLDOWN)
+            if cd > 0:
+                await interaction.response.send_message(f"{COOLDOWN} Wait **{cd}s**.", ephemeral=True)
                 return
-            desc = f"You {act} and paid a fine of **{fine}** coins!"
-            color = discord.Color.red()
 
-        await self._set_fields(uid, last_crime=now.isoformat())
+            success = random.random() < CRIME_SUCCESS_RATE
+            now = datetime.now(timezone.utc)
+            act = random.choice(CRIMES if success else CRIME_FAILS)
+
+            await c.execute("BEGIN")
+            if success:
+                loot = random.randint(CRIME_MIN, CRIME_MAX)
+                new_bal = await self._add_balance(uid, loot, c)
+                desc = f"You {act} and got away with **{loot}** coins!"
+                color = discord.Color.green()
+            else:
+                fine = random.randint(CRIME_FAIL_PENALTY // 2, CRIME_FAIL_PENALTY)
+                ok, new_bal = await self._sub_balance(uid, fine, c)
+                if not ok:
+                    await c.execute("ROLLBACK")
+                    await interaction.response.send_message(f"{CROSS_NO} You need coins in your wallet to attempt a crime.", ephemeral=True)
+                    return
+                desc = f"You {act} and paid a fine of **{fine}** coins!"
+                color = discord.Color.red()
+
+            await self._set_fields(uid, c, last_crime=now.isoformat())
+            await c.commit()
         embed = discord.Embed(title=f"{CRIME} Crime", description=desc, color=color)
         embed.add_field(name="Balance", value=f"{new_bal}", inline=False)
         await interaction.response.send_message(embed=embed)
@@ -498,25 +520,29 @@ class EconomyCog(commands.Cog):
     @app_commands.autocomplete(amount=_amount_ac)
     async def deposit(self, interaction: discord.Interaction, amount: str) -> None:
         uid = interaction.user.id
-        if amount.lower() == "all":
-            d = await self._read(uid)
-            amt = d["balance"]
-        else:
-            try:
-                amt = int(amount)
-            except ValueError:
-                await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
+        async with self._conn() as c:
+            if amount.lower() == "all":
+                d = await self._read(uid, c)
+                amt = d["balance"]
+            else:
+                try:
+                    amt = int(amount)
+                except ValueError:
+                    await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
+                    return
+
+            if amt <= 0:
+                await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
                 return
 
-        if amt <= 0:
-            await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
-            return
-
-        ok, new_wallet = await self._sub_balance(uid, amt)
-        if not ok:
-            await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
-            return
-        new_bank = await self._add_bank(uid, amt)
+            await c.execute("BEGIN")
+            ok, new_wallet = await self._sub_balance(uid, amt, c)
+            if not ok:
+                await c.execute("ROLLBACK")
+                await interaction.response.send_message(f"{CROSS_NO} You don't have enough coins.", ephemeral=True)
+                return
+            new_bank = await self._add_bank(uid, amt, c)
+            await c.commit()
 
         await interaction.response.send_message(f"{WITHDRAW} Deposited **{amt}** coins. Wallet: **{new_wallet}** | Bank: **{new_bank}**")
 
@@ -524,25 +550,29 @@ class EconomyCog(commands.Cog):
     @app_commands.autocomplete(amount=_amount_ac)
     async def withdraw(self, interaction: discord.Interaction, amount: str) -> None:
         uid = interaction.user.id
-        if amount.lower() == "all":
-            d = await self._read(uid)
-            amt = d["bank"]
-        else:
-            try:
-                amt = int(amount)
-            except ValueError:
-                await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
+        async with self._conn() as c:
+            if amount.lower() == "all":
+                d = await self._read(uid, c)
+                amt = d["bank"]
+            else:
+                try:
+                    amt = int(amount)
+                except ValueError:
+                    await interaction.response.send_message(f"{CROSS_NO} Enter a number or 'all'.", ephemeral=True)
+                    return
+
+            if amt <= 0:
+                await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
                 return
 
-        if amt <= 0:
-            await interaction.response.send_message(f"{CROSS_NO} Amount must be positive.", ephemeral=True)
-            return
-
-        ok, new_bank = await self._sub_bank(uid, amt)
-        if not ok:
-            await interaction.response.send_message(f"{CROSS_NO} Not enough coins in bank.", ephemeral=True)
-            return
-        new_wallet = await self._add_balance(uid, amt)
+            await c.execute("BEGIN")
+            ok, new_bank = await self._sub_bank(uid, amt, c)
+            if not ok:
+                await c.execute("ROLLBACK")
+                await interaction.response.send_message(f"{CROSS_NO} Not enough coins in bank.", ephemeral=True)
+                return
+            new_wallet = await self._add_balance(uid, amt, c)
+            await c.commit()
 
         await interaction.response.send_message(f"{WITHDRAW} Withdrew **{amt}** coins. Wallet: **{new_wallet}** | Bank: **{new_bank}**")
 
@@ -573,24 +603,24 @@ class EconomyCog(commands.Cog):
     async def weekly(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
         now = datetime.now(timezone.utc)
-        d = await self._read(uid)
-        last = d.get("last_weekly", "")
-        if last:
-            try:
-                delta = now - datetime.fromisoformat(last)
-                if delta.days < 7:
-                    remaining = 7 - delta.days
-                    await interaction.response.send_message(f"{COOLDOWN} Come back in **{remaining}d** for your weekly.", ephemeral=True)
-                    return
-            except ValueError:
-                pass
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute(
-                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ?, last_weekly = ? WHERE user_id = ?",
-                (DAILY_AMOUNT * 5, DAILY_AMOUNT * 5, now.isoformat(), uid),
-            )
-            await db.commit()
-        await interaction.response.send_message(f"{DAILY} Weekly bonus: **{DAILY_AMOUNT * 5}** coins!")
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            last = d.get("last_weekly", "")
+            if last:
+                try:
+                    delta = now - datetime.fromisoformat(last)
+                    if delta.days < 7:
+                        remaining = 7 - delta.days
+                        await interaction.response.send_message(f"{COOLDOWN} Come back in **{remaining}d** for your weekly.", ephemeral=True)
+                        return
+                except ValueError:
+                    pass
+            amount = DAILY_AMOUNT * 5
+            await c.execute("BEGIN")
+            new_bal = await self._add_balance(uid, amount, c)
+            await self._set_fields(uid, c, last_weekly=now.isoformat())
+            await c.commit()
+        await interaction.response.send_message(f"{DAILY} Weekly bonus: **{amount}** coins!")
 
     # ── Search ──
 
@@ -600,25 +630,24 @@ class EconomyCog(commands.Cog):
     async def search(self, interaction: discord.Interaction) -> None:
         uid = interaction.user.id
         now = datetime.now(timezone.utc)
-        d = await self._read(uid)
-        last = d.get("last_search", "")
-        if last:
-            try:
-                delta = now - datetime.fromisoformat(last)
-                if delta.total_seconds() < 600:
-                    remain = int(600 - delta.total_seconds())
-                    await interaction.response.send_message(f"{COOLDOWN} You're tired of searching. Wait **{remain}s**.", ephemeral=True)
-                    return
-            except ValueError:
-                pass
-        place = random.choice(SEARCH_PLACES)
-        found = random.randint(5, 50)
-        async with aiosqlite.connect(self.bot.db.db_path) as db:
-            await db.execute(
-                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ?, last_search = ? WHERE user_id = ?",
-                (found, found, now.isoformat(), uid),
-            )
-            await db.commit()
+        async with self._conn() as c:
+            d = await self._read(uid, c)
+            last = d.get("last_search", "")
+            if last:
+                try:
+                    delta = now - datetime.fromisoformat(last)
+                    if delta.total_seconds() < 600:
+                        remain = int(600 - delta.total_seconds())
+                        await interaction.response.send_message(f"{COOLDOWN} You're tired of searching. Wait **{remain}s**.", ephemeral=True)
+                        return
+                except ValueError:
+                    pass
+            place = random.choice(SEARCH_PLACES)
+            found = random.randint(5, 50)
+            await c.execute("BEGIN")
+            new_bal = await self._add_balance(uid, found, c)
+            await self._set_fields(uid, c, last_search=now.isoformat())
+            await c.commit()
         await interaction.response.send_message(f"{WORK_BRIEF} You searched **{place}** and found **{found}** coins!")
 
     # ── Gift ──
@@ -887,6 +916,20 @@ class EconomyCog(commands.Cog):
         embed.add_field(name="Total Cost", value=f"${total_cost:,}", inline=True)
         embed.add_field(name="Profit/Loss", value=f"${total_value - total_cost:,}", inline=True)
         await interaction.response.send_message(embed=embed)
+
+    # ── Transaction History ──
+
+    @app_commands.command(name="transactions", description="View your recent transaction history.")
+    async def transactions(self, interaction: discord.Interaction) -> None:
+        rows = await self.bot.db.get_transaction_history(interaction.user.id, limit=15)
+        if not rows:
+            await interaction.response.send_message(f"{CROSS_NO} No transactions yet.", ephemeral=True)
+            return
+        lines = []
+        for r in rows:
+            emoji = {"earn": "+", "spend": "-", "transfer": "↔", "interest": "🏦"}.get(r["type"], "•")
+            lines.append(f"{emoji} **{r['type']}** {r['amount']:+,} → bal {r['balance_after']}  `{r['details']}`")
+        await interaction.response.send_message(f"**📜 Recent Transactions**\n" + "\n".join(lines))
 
 
 async def setup(bot: commands.Bot) -> None:

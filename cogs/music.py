@@ -48,12 +48,17 @@ class MusicPlayer:
         self.loop = False
         self.loopqueue = False
         self.volume = 100
+        self.played_history: list[dict[str, str]] = []
 
     async def play_next(self) -> None:
         if self.loop and self.current:
             self.queue.insert(0, self.current)
         elif self.loopqueue and self.current:
             self.queue.append(self.current)
+        elif self.current:
+            self.played_history.append(self.current)
+            if len(self.played_history) > 20:
+                self.played_history.pop(0)
 
         if not self.queue:
             self._playing = False
@@ -446,6 +451,143 @@ class MusicCog(commands.Cog):
         player._playing = False
         player.current = None
         await interaction.response.send_message(f"{LEAVE_VC} Left the voice channel.")
+
+    @app_commands.command(name="clear", description="Clear the queue without stopping playback.")
+    async def clear(self, interaction: discord.Interaction) -> None:
+        player = self._get_player(interaction.guild_id)
+        if not player.queue:
+            await interaction.response.send_message("Queue is already empty.", ephemeral=True)
+            return
+        count = len(player.queue)
+        player.queue.clear()
+        await interaction.response.send_message(f"{STOP_BUTTON} Cleared **{count}** songs from the queue. Current song keeps playing.")
+
+    @app_commands.command(name="previous", description="Go back to the last played song.")
+    async def previous(self, interaction: discord.Interaction) -> None:
+        player = self._get_player(interaction.guild_id)
+        if not player.voice or not player.voice.is_connected():
+            await interaction.response.send_message("Not connected to a voice channel.", ephemeral=True)
+            return
+        if not player.played_history:
+            await interaction.response.send_message("No previous song to go back to.", ephemeral=True)
+            return
+        last = player.played_history.pop()
+        if player._playing and player.current:
+            player.queue.insert(0, player.current)
+        player.queue.insert(0, last)
+        if player.voice and player.voice.is_playing():
+            player.voice.stop()
+        else:
+            await player.play_next()
+        await interaction.response.send_message(f"\u23ee\ufe0f Going back to **{last['title']}**.")
+
+    @app_commands.command(name="jump", description="Jump to a specific position in the queue.")
+    @app_commands.describe(position="Queue position to jump to (1-based)")
+    @app_commands.autocomplete(position=_queue_pos_ac)
+    async def jump(self, interaction: discord.Interaction, position: int) -> None:
+        player = self._get_player(interaction.guild_id)
+        if not 1 <= position <= len(player.queue):
+            await interaction.response.send_message("Invalid queue position.", ephemeral=True)
+            return
+        song = player.queue[position - 1]
+        for _ in range(position - 1):
+            player.queue.pop(0)
+        player.queue.insert(0, song)
+        if player.voice and player.voice.is_playing():
+            player.voice.stop()
+        else:
+            await player.play_next()
+        await interaction.response.send_message(f"\u23ed\ufe0f Jumped to **{song['title']}** at position #{position}.")
+
+    @app_commands.command(name="ytsearch", description="Search YouTube and pick a result to play.")
+    @app_commands.describe(query="Search query")
+    async def ytsearch(self, interaction: discord.Interaction, query: str) -> None:
+        if yt_dlp is None:
+            await interaction.response.send_message("Music requires `yt-dlp`. Install it with `pip install yt-dlp`.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        try:
+            with yt_dlp.YoutubeDL({**YTDL_SEARCH_OPTS, "extract_flat": True, "quiet": True}) as ydl:
+                results = ydl.extract_info(f"ytsearch5:{query}", download=False)["entries"]
+        except Exception as exc:
+            await interaction.followup.send(f"Search failed: {exc}")
+            return
+        if not results:
+            await interaction.followup.send("No results found.")
+            return
+
+        options = []
+        for i, entry in enumerate(results[:5], 1):
+            title = entry.get("title", "Unknown")
+            duration = entry.get("duration", 0)
+            mins, secs = divmod(duration or 0, 60)
+            dur_str = f"{mins}:{secs:02d}" if duration else "?"
+            label = f"{i}. {title[:80]}"
+            options.append(discord.SelectOption(label=label, description=f"{dur_str} | {entry.get('uploader', '?')[:40]}", value=str(i - 1)))
+
+        view = SearchView(self, results, query, interaction.user.id)
+
+        embed = discord.Embed(title="\ud83d\udd0d Search Results", description=f"Results for **{query}**", color=discord.Color.teal())
+        for i, entry in enumerate(results[:5], 1):
+            title = entry.get("title", "Unknown")
+            duration = entry.get("duration", 0)
+            mins, secs = divmod(duration or 0, 60)
+            dur_str = f"{mins}:{secs:02d}" if duration else "?"
+            embed.add_field(name=f"{i}. {title}", value=f"Duration: {dur_str} | {entry.get('uploader', '?')}", inline=False)
+
+        await interaction.followup.send(embed=embed, view=view)
+
+
+class SearchView(discord.ui.View):
+    def __init__(self, cog: MusicCog, results: list, query: str, user_id: int) -> None:
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.results = results
+        self.query = query
+        self.user_id = user_id
+        self.selected_index = 0
+
+        options = []
+        for i, entry in enumerate(results[:5], 1):
+            title = entry.get("title", "Unknown")
+            duration = entry.get("duration", 0)
+            mins, secs = divmod(duration or 0, 60)
+            dur_str = f"{mins}:{secs:02d}" if duration else "?"
+            label = f"{i}. {title[:80]}"
+            options.append(discord.SelectOption(label=label, description=f"{dur_str} | {entry.get('uploader', '?')[:40]}", value=str(i - 1)))
+
+        self.select = discord.ui.Select(placeholder="Choose a song...", options=options)
+        self.select.callback = self.select_callback
+        self.add_item(self.select)
+
+    async def select_callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Not your search.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        index = int(self.select.values[0])
+        entry = self.results[index]
+        title = entry.get("title", "Unknown")
+        url = entry.get("webpage_url", entry.get("url", ""))
+        duration = entry.get("duration", 0)
+        song = {"title": title, "url": url, "duration": str(duration)}
+        voice = await self.cog._ensure_voice(interaction)
+        if not voice:
+            return
+        player = self.cog._get_player(interaction.guild_id)
+        player.voice = voice
+        player.queue.append(song)
+        if not player._playing:
+            await player.play_next()
+            await interaction.followup.send(f"\u25b6\ufe0f Now playing: **{title}**")
+        else:
+            pos = len(player.queue)
+            await interaction.followup.send(f"Added to queue at position #{pos}: **{title}**")
+        self.stop()
+
+    async def on_timeout(self) -> None:
+        for item in self.children:
+            item.disabled = True
 
 
 async def setup(bot: commands.Bot) -> None:

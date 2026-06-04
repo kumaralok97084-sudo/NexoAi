@@ -1,32 +1,27 @@
 from __future__ import annotations
 
+from datetime import date
+
 import discord
+import httpx
 from discord import app_commands
 from discord.ext import commands
 
 from bot import build_system_prompt
-from cogs.emojis import CROSS_NO
+from cogs.emojis import CROSS_NO, HELP_ECONOMY
 
 AGENT_PRESETS: dict[str, dict[str, str]] = {
     "nexo-fast": {
-        "model": "openai/gpt-4o-mini",
+        "model": "openrouter/auto",
         "desc": "Fast, general support replies.",
     },
-    "claude-pro": {
-        "model": "anthropic/claude-opus-4.1",
-        "desc": "High quality reasoning and writing.",
-    },
-    "gemini-pro": {
-        "model": "google/gemini-2.0-flash-001",
-        "desc": "Fast + strong multimodal style reasoning.",
+    "nexo-pro": {
+        "model": "openrouter/auto",
+        "desc": "Strongest reasoning (auto-routed via OpenRouter).",
     },
     "coder": {
-        "model": "deepseek/deepseek-r1",
+        "model": "openrouter/auto",
         "desc": "Code-heavy tasks and debugging support.",
-    },
-    "coder-pro": {
-        "model": "deepseek/deepseek-chat",
-        "desc": "DeepSeek V4 Flash - excellent at all coding tasks.",
     },
 }
 
@@ -91,7 +86,12 @@ class AICog(commands.Cog):
 
         profile = await self.bot.db.get_user_profile(interaction.user.id)  # type: ignore[attr-defined]
         model_key = (profile.get("agent_model") or "").strip().lower()
-        selected_model = override_model or AGENT_PRESETS.get(model_key, {}).get("model", self.bot.settings.openrouter_model)  # type: ignore[attr-defined]
+        if override_model:
+            selected_model = override_model
+        elif model_key and model_key in AGENT_PRESETS:
+            selected_model = AGENT_PRESETS[model_key]["model"]
+        else:
+            selected_model = None  # let fallback chain use each provider's own model
 
         final_user_text = user_text
         if search_context:
@@ -161,6 +161,12 @@ class AICog(commands.Cog):
         mode: str = "generate",
     ) -> None:
         await interaction.response.defer(thinking=True)
+
+        err = await self._check_image_limit(interaction.user.id)
+        if err:
+            await interaction.followup.send(err, ephemeral=True)
+            return
+
         gen_model = model or self.bot.settings.image_gen_model
         provider = getattr(self.bot.settings, "image_gen_provider", "openrouter")
 
@@ -194,6 +200,18 @@ class AICog(commands.Cog):
             await interaction.followup.send("No image was returned.")
             return
 
+        if result.get("provider") == "pollinations":
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    resp = await client.head(image_url_result, follow_redirects=True)
+                    if resp.status_code == 429:
+                        await interaction.followup.send(
+                            f"{CROSS_NO} Image provider is rate-limited. Try a different model with `/imagine model:black-forest-labs/flux-schnell`."
+                        )
+                        return
+            except Exception:
+                pass
+
         action = {"generate": "Generated", "variation": "Variation", "edit": "Edited"}.get(mode, "Generated")
         embed = discord.Embed(
             title=f"Image {action}",
@@ -204,6 +222,19 @@ class AICog(commands.Cog):
         embed.set_image(url=image_url_result)
         embed.set_footer(text=f"Model: {result.get('model', gen_model)} | Mode: {mode}")
         await interaction.followup.send(embed=embed)
+
+    IMAGE_COST = 100
+
+    async def _check_image_limit(self, uid: int) -> str | None:
+        today = date.today().isoformat()
+        last_gen = await self.bot.db.get_last_image_gen(uid)
+        if last_gen == today:
+            return f"{CROSS_NO} You already generated an image today! Come back tomorrow. ({HELP_ECONOMY} 1 image per day)"
+        ok = await self.bot.db.deduct_coins(uid, self.IMAGE_COST)
+        if not ok:
+            return f"{CROSS_NO} You need **{self.IMAGE_COST}** coins to generate an image. Earn coins with `/daily`, `/work`, `/crime`, etc."
+        await self.bot.db.set_last_image_gen(uid, today)
+        return None
 
     @app_commands.command(name="imagemodels", description="List available image generation models.")
     async def image_models(self, interaction: discord.Interaction) -> None:
@@ -247,7 +278,7 @@ class AICog(commands.Cog):
             temperature=0.5,
         )
 
-    CODER_MODEL = AGENT_PRESETS["coder-pro"]["model"]
+    CODER_MODEL = AGENT_PRESETS["nexo-pro"]["model"]
 
     @app_commands.command(name="code", description="Generate or fix code snippets.")
     async def code(

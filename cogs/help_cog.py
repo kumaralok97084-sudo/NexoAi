@@ -68,6 +68,7 @@ CATEGORIES = {
             ("/deposit", "Deposit coins into bank"),
             ("/withdraw", "Withdraw coins from bank"),
             ("/search", "Search for coins"),
+            ("/transactions", "View transaction history"),
             ("/inventory", "View purchased items"),
             ("/shop list", "Browse shop items"),
             ("/shop buy", "Buy a shop item"),
@@ -221,6 +222,9 @@ CATEGORIES = {
             ("/linkwhitelist addrole", "Exempt role from link filter"),
             ("/linkwhitelist remove", "Remove link exemption"),
             ("/linkwhitelist list", "List link exemptions"),
+            ("/eco give", "Give coins to a user"),
+            ("/eco take", "Take coins from a user"),
+            ("/eco set", "Set a user's coin balance"),
         ],
     },
     "music": {
@@ -252,9 +256,10 @@ CATEGORIES = {
             ("/playlist_view", "View a playlist"),
             ("/playlist_play", "Load playlist into queue"),
             ("/playlist_delete", "Delete a playlist"),
-            ("/radio", "Play internet radio"),
-            ("/lyrics", "Get song lyrics"),
-            ("/soundboard", "Play a sound effect"),
+            ("/clear", "Clear queue without stopping"),
+            ("/previous", "Go back to last played song"),
+            ("/jump", "Jump to a queue position"),
+            ("/ytsearch", "Search YouTube and pick a result"),
         ],
     },
     "games": {
@@ -369,6 +374,7 @@ CATEGORIES = {
         "cmds": [
             ("/help", "Interactive help menu"),
             ("/helpme", "Quick command overview"),
+            ("/prefix", "Show all bot prefixes"),
             ("/ping", "Check bot latency"),
             ("/uptime", "Show bot uptime"),
             ("/serverinfo", "Show server information"),
@@ -507,6 +513,19 @@ class HelpCog(commands.Cog):
         embed.add_field(name="\U0000200b", value="\n".join(right_lines), inline=True)
         embed.set_footer(text="Select a category below | \U0001f512 = Admin only")
         await interaction.response.send_message(embed=embed, view=HelpView(), ephemeral=False)
+
+    @app_commands.command(name="prefix", description="Show all available bot prefixes.")
+    async def prefix(self, interaction: discord.Interaction) -> None:
+        prefixes = self.bot.settings.bot_prefixes
+        mention = f"@{self.bot.user.name}" if self.bot.user else "@NexoAI"
+        lines = "\n".join(f"**`{p}`**" for p in prefixes)
+        embed = discord.Embed(
+            title="\u2139\ufe0f Bot Prefixes",
+            description=f"Available prefixes for text commands:\n{lines}\n\nYou can also mention me: **{mention}**\n\nSlash commands use **`/`** directly.",
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{len(prefixes)} text prefixes + 1 mention prefix")
+        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:

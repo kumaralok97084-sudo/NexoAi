@@ -123,6 +123,7 @@ class ImageGenerator:
                 "url": url,
                 "revised_prompt": prompt,
                 "model": self.model,
+                "provider": "pollinations",
             }
 
         if not self.api_key:
@@ -131,15 +132,40 @@ class ImageGenerator:
         model_lower = self.model.lower()
 
         if mode == "variation" and image_url:
-            return await self._generate_variation(prompt, model_lower, image_url)
+            result = await self._generate_variation(prompt, model_lower, image_url)
+            if "error" in result:
+                return await self._fallback_pollinations(prompt, size)
+            return result
         if mode == "edit" and image_url:
-            return await self._generate_edit(prompt, model_lower, image_url)
+            result = await self._generate_edit(prompt, model_lower, image_url)
+            if "error" in result:
+                return await self._fallback_pollinations(prompt, size)
+            return result
 
         if model_lower in DEDICATED_IMAGE_MODELS:
-            return await self._generate_dedicated(prompt, model_lower, size)
+            result = await self._generate_dedicated(prompt, model_lower, size)
+            if "error" in result:
+                return await self._fallback_pollinations(prompt, size)
+            return result
         if model_lower in CHAT_IMAGE_MODELS:
-            return await self._generate_chat_based(prompt, model_lower, negative_prompt, image_url)
-        return await self._generate_chat_based(prompt, self.model, negative_prompt, image_url)
+            result = await self._generate_chat_based(prompt, model_lower, negative_prompt, image_url)
+            if "error" in result:
+                return await self._fallback_pollinations(prompt, size)
+            return result
+        result = await self._generate_chat_based(prompt, self.model, negative_prompt, image_url)
+        if "error" in result:
+            return await self._fallback_pollinations(prompt, size)
+        return result
+
+    async def _fallback_pollinations(self, prompt: str, size: str | None = None) -> dict[str, Any]:
+        logger.warning("OpenRouter image gen failed, falling back to Pollinations")
+        url = self._build_pollinations_url(prompt, size)
+        return {
+            "url": url,
+            "revised_prompt": prompt,
+            "model": "flux (pollinations fallback)",
+            "provider": "pollinations",
+        }
 
     async def _generate_variation(self, prompt: str, model: str, image_url: str) -> dict[str, Any]:
         return await self._generate_chat_based(

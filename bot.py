@@ -52,6 +52,24 @@ class UnlimitedTree(CommandTree):
         mapping.update(self._global_commands)
         self._guild_commands[guild.id] = mapping
 
+    async def sync(self, *, guild=None):
+        if guild is not None:
+            cmds = list(self._guild_commands.get(guild.id, {}).values())
+        else:
+            cmds = list(self._global_commands.values())
+        total = len(cmds)
+        if total <= 100:
+            return await super().sync(guild=guild)
+        synced = await super().sync(guild=guild)
+        if len(synced) < total:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Only %d/%d commands synced (Discord 100 limit). "
+                "Run /sync_guild to sync a custom batch for your guild.",
+                len(synced), total,
+            )
+        return synced
+
 from config import PRESENCE_TYPES, load_settings
 from database import Database
 from file_ingest import ingest_attachments
@@ -95,7 +113,10 @@ intents.message_content = True
 intents.members = True
 intents.guilds = True
 
-bot = commands.Bot(command_prefix=settings.bot_prefix, intents=intents, tree_cls=UnlimitedTree)
+async def get_prefix(bot: commands.Bot, message: discord.Message) -> list[str]:
+    return commands.when_mentioned_or(*settings.bot_prefixes)(bot, message)
+
+bot = commands.Bot(command_prefix=get_prefix, intents=intents, tree_cls=UnlimitedTree)
 bot.db = database  # type: ignore[attr-defined]
 bot.llm = llm  # type: ignore[attr-defined]
 bot.memory = memory_mgr  # type: ignore[attr-defined]
@@ -114,13 +135,13 @@ async def on_ready() -> None:
     logging.info("Logged in as %s (%s)", bot.user, bot.user.id if bot.user else "n/a")
     guilds = bot.guilds
     if guilds:
-        for g in guilds[:1]:
+        for g in guilds:
             try:
                 bot.tree.copy_global_to(guild=g)
                 synced = await bot.tree.sync(guild=g)
                 logging.info("Synced %d slash commands to guild %s.", len(synced), g.name)
             except Exception as e:
-                logging.warning("Per-guild sync failed: %s", e)
+                logging.warning("Per-guild sync failed for %s: %s", g.name, e)
     else:
         synced = await bot.tree.sync()
         logging.info("Synced %d slash commands globally.", len(synced))
@@ -162,6 +183,9 @@ async def setup_hook() -> None:
         "cogs.economy",
         "cogs.utility_ext",
         "cogs.features_ext",
+        "cogs.music", "cogs.games", "cogs.fun", "cogs.help_cog",
+        "cogs.leveling", "cogs.tags", "cogs.server_stats", "cogs.server_mgmt",
+        "cogs.link_mod", "cogs.embed_builder",
     ):
         await bot.load_extension(extension)
         logging.info("Loaded extension: %s", extension)
@@ -169,6 +193,8 @@ async def setup_hook() -> None:
         cleanup_old_data.start()
     if not check_reminders.is_running():
         check_reminders.start()
+    if not bank_interest.is_running():
+        bank_interest.start()
 
 
 @bot.event
@@ -454,6 +480,25 @@ async def check_reminders() -> None:
                 await bot.db.delete_reminder(r["id"])  # type: ignore[attr-defined]
             except Exception:
                 pass
+
+
+@tasks.loop(hours=24)
+async def bank_interest() -> None:
+    try:
+        async with aiosqlite.connect(settings.database_path) as db:
+            cursor = await db.execute("SELECT user_id, bank FROM economy WHERE bank > 0")
+            rows = await cursor.fetchall()
+            for uid, bank in rows:
+                interest = max(1, int(bank * 0.01))
+                await db.execute(
+                    "UPDATE economy SET bank = bank + ?, total_earned = total_earned + ? WHERE user_id = ?",
+                    (interest, interest, uid),
+                )
+            await db.commit()
+            if rows:
+                logging.info("Bank interest paid to %d users.", len(rows))
+    except Exception as exc:
+        logging.warning("Bank interest task failed: %s", exc)
 
 
 @rotate_status.before_loop

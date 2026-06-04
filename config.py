@@ -33,7 +33,7 @@ class Settings:
     nvidia_api_key: str
     nvidia_model: str
     llm_fallback_order: list[str]
-    bot_prefix: str
+    bot_prefixes: list[str]
     owner_ids: set[int]
     default_system_prompt: str
     database_path: str
@@ -57,6 +57,14 @@ class Settings:
     moderation_enabled: bool
     moderation_max_warns: int
     moderation_timeout_minutes: int
+
+
+def _parse_prefixes(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        return [raw.strip()]
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return ["/"]
 
 
 def _section(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -120,7 +128,7 @@ def load_settings(path: Path | str = DEFAULT_CONFIG_PATH) -> Settings:
                 rotating_statuses.append((status_type, status_text))
 
     fallback_raw = llm_cfg.get(
-        "fallback_order", ["groq", "openrouter", "cerebras"]
+        "fallback_order", ["groq", "pollinations", "nvidia", "openrouter", "cerebras"]
     )
     if isinstance(fallback_raw, str):
         llm_fallback_order = [fallback_raw.strip().lower()]
@@ -129,7 +137,7 @@ def load_settings(path: Path | str = DEFAULT_CONFIG_PATH) -> Settings:
             str(item).strip().lower() for item in fallback_raw if str(item).strip()
         ]
     else:
-        llm_fallback_order = ["groq", "openrouter", "cerebras"]
+        llm_fallback_order = ["groq", "pollinations", "nvidia", "openrouter", "cerebras"]
 
     search_cfg = _section(data, "google_search")
     vllm_cfg = _section(data, "vllm")
@@ -155,7 +163,7 @@ def load_settings(path: Path | str = DEFAULT_CONFIG_PATH) -> Settings:
             nvidia_cfg.get("model", "nvidia/llama-3.1-nemotron-70b-instruct")
         ).strip(),
         llm_fallback_order=llm_fallback_order,
-        bot_prefix=str(discord_cfg.get("prefix", "!")),
+        bot_prefixes=_parse_prefixes(discord_cfg.get("prefixes", ["/", "!"])),
         owner_ids=_parse_owner_ids(discord_cfg.get("owner_ids")),
         default_system_prompt=str(
             bot_cfg.get(

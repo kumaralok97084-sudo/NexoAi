@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import aiosqlite
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from cogs.emojis import CHECK_OK, CROSS_NO
+from cogs.emojis import CHECK_OK, CROSS_NO, HELP_ECONOMY
 
 
 class AdminCog(commands.Cog):
@@ -133,6 +134,64 @@ class AdminCog(commands.Cog):
             return
         await self.bot.db.upsert_guild_setting(interaction.guild.id, "autorole_id", "")  # type: ignore[attr-defined]
         await interaction.response.send_message(f"{CHECK_OK} Auto-role removed.", ephemeral=True)
+
+    # ══════════════════════════════════════════════════════════════
+    #  ADMIN ECONOMY COMMANDS
+    # ══════════════════════════════════════════════════════════════
+
+    eco = app_commands.Group(name="eco", description="Admin economy management commands.")
+
+    @eco.command(name="give", description="Give coins to a user (adds to wallet).")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def eco_give(
+        self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, 10_000_000]
+    ) -> None:
+        async with aiosqlite.connect(self.bot.db.db_path) as db:  # type: ignore[attr-defined]
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user.id,))
+            await db.execute(
+                "UPDATE economy SET balance = balance + ?, total_earned = total_earned + ? WHERE user_id = ?",
+                (amount, amount, user.id),
+            )
+            await db.commit()
+        await interaction.response.send_message(
+            f"{CHECK_OK} Gave {HELP_ECONOMY} **{amount}** coins to {user.mention}.", ephemeral=True
+        )
+
+    @eco.command(name="take", description="Remove coins from a user's wallet.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def eco_take(
+        self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 1, 10_000_000]
+    ) -> None:
+        async with aiosqlite.connect(self.bot.db.db_path) as db:  # type: ignore[attr-defined]
+            cur = await db.execute(
+                "UPDATE economy SET balance = balance - ?, total_spent = total_spent + ? WHERE user_id = ? AND balance >= ?",
+                (amount, amount, user.id, amount),
+            )
+            await db.commit()
+            if cur.rowcount == 0:
+                await interaction.response.send_message(
+                    f"{CROSS_NO} {user.mention} doesn't have enough coins.", ephemeral=True
+                )
+                return
+        await interaction.response.send_message(
+            f"{CHECK_OK} Took {HELP_ECONOMY} **{amount}** coins from {user.mention}.", ephemeral=True
+        )
+
+    @eco.command(name="set", description="Set a user's wallet balance to an exact amount.")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def eco_set(
+        self, interaction: discord.Interaction, user: discord.User, amount: app_commands.Range[int, 0, 10_000_000]
+    ) -> None:
+        async with aiosqlite.connect(self.bot.db.db_path) as db:  # type: ignore[attr-defined]
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user.id,))
+            await db.execute(
+                "UPDATE economy SET balance = ?, total_earned = total_earned + ? WHERE user_id = ?",
+                (amount, max(0, amount), user.id),
+            )
+            await db.commit()
+        await interaction.response.send_message(
+            f"{CHECK_OK} Set {user.mention}'s wallet to {HELP_ECONOMY} **{amount}** coins.", ephemeral=True
+        )
 
     # ---- Error Handler ----
 

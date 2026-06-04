@@ -920,17 +920,10 @@ class FeaturesExtCog(commands.Cog):
         self._rep_cooldowns[uid] = now
         async with aiosqlite.connect(self.bot.db.db_path) as db:
             await db.execute("INSERT OR IGNORE INTO user_profiles (user_id) VALUES (?)", (user.id,))
-            cur = await db.execute("SELECT persona FROM user_profiles WHERE user_id = ?", (user.id,))
+            cur = await db.execute("SELECT COALESCE(reputation, '0') FROM user_profiles WHERE user_id = ?", (user.id,))
             row = await cur.fetchone()
-            rep = 0
-            if row and row[0]:
-                try:
-                    rep = int(row[0].split("rep:")[1].split(",")[0].strip()) if "rep:" in row[0] else 0
-                except (ValueError, IndexError):
-                    rep = 0
-            rep += 1
-            meta = f"rep:{rep}" if not row[0] or "rep:" not in (row[0] or "") else (row[0].split("rep:")[0] + f"rep:{rep}")
-            await db.execute("UPDATE user_profiles SET persona = ? WHERE user_id = ?", (meta, user.id))
+            rep = (int(row[0]) if row and row[0] else 0) + 1
+            await db.execute("UPDATE user_profiles SET reputation = ? WHERE user_id = ?", (str(rep), user.id))
             await db.commit()
         embed = discord.Embed(title=f"{REP} +1 Rep", description=f"{interaction.user.mention} gave rep to {user.mention}! Total: **{rep}**", color=discord.Color.gold())
         await interaction.response.send_message(embed=embed)
@@ -1097,11 +1090,7 @@ class FeaturesExtCog(commands.Cog):
                 return
             async with aiosqlite.connect(self.bot.db.db_path) as db:
                 await db.execute("INSERT OR IGNORE INTO user_profiles (user_id) VALUES (?)", (interaction.user.id,))
-                cur = await db.execute("SELECT persona FROM user_profiles WHERE user_id = ?", (interaction.user.id,))
-                row = await cur.fetchone()
-                meta = (row[0] or "")
-                meta = f"bday:{date}" if not meta else (meta.split("bday:")[0] + f" bday:{date}")
-                await db.execute("UPDATE user_profiles SET persona = ? WHERE user_id = ?", (meta, interaction.user.id))
+                await db.execute("UPDATE user_profiles SET birthday = ? WHERE user_id = ?", (date, interaction.user.id))
                 await db.commit()
             await interaction.response.send_message(f"{BIRTHDAY} Birthday set to {date}!")
         else:

@@ -290,14 +290,38 @@ class Database:
             ]:
                 await db.execute(stock_sql)
 
+            # Transaction history
+            await db.execute(
+                """CREATE TABLE IF NOT EXISTS transaction_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    amount INTEGER NOT NULL,
+                    balance_after INTEGER NOT NULL,
+                    details TEXT DEFAULT '',
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"""
+            )
+
             # Backward-compatible migration for older databases.
-            for col in ("agent_model", "welcome_channel", "welcome_message", "leave_channel", "leave_message", "autorole_id",
-                        "modlog_channel", "raid_mode", "antispam_enabled", "filter_mode"):
+            for col in (
+                "agent_model", "welcome_channel", "welcome_message", "leave_channel",
+                "leave_message", "autorole_id", "modlog_channel", "raid_mode",
+                "antispam_enabled", "filter_mode",
+            ):
                 try:
                     if col == "agent_model":
                         await db.execute("ALTER TABLE user_profiles ADD COLUMN agent_model TEXT DEFAULT ''")
                     else:
                         await db.execute(f"ALTER TABLE guild_settings ADD COLUMN {col} TEXT DEFAULT ''")
+                except aiosqlite.OperationalError:
+                    pass
+            try:
+                await db.execute("ALTER TABLE economy ADD COLUMN last_image_gen TEXT DEFAULT ''")
+            except aiosqlite.OperationalError:
+                pass
+            for col in ("reputation", "birthday"):
+                try:
+                    await db.execute(f"ALTER TABLE user_profiles ADD COLUMN {col} TEXT DEFAULT ''")
                 except aiosqlite.OperationalError:
                     pass
             await db.commit()
@@ -1016,6 +1040,56 @@ class Database:
                 )
             await db.commit()
             return True
+
+    # ── Image Generation Rate Limit ──
+
+    async def get_last_image_gen(self, user_id: int) -> str:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT last_image_gen FROM economy WHERE user_id = ?", (user_id,)
+            ) as cur:
+                row = await cur.fetchone()
+                return row[0] if row else ""
+
+    async def set_last_image_gen(self, user_id: int, date_str: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user_id,))
+            await db.execute(
+                "UPDATE economy SET last_image_gen = ? WHERE user_id = ?", (date_str, user_id)
+            )
+            await db.commit()
+
+    async def deduct_coins(self, user_id: int, amount: int) -> bool:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("INSERT OR IGNORE INTO economy (user_id) VALUES (?)", (user_id,))
+            cur = await db.execute(
+                "UPDATE economy SET balance = balance - ?, total_spent = total_spent + ? WHERE user_id = ? AND balance >= ?",
+                (amount, amount, user_id, amount),
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    # ── Transaction Log ──
+
+    async def log_transaction(self, user_id: int, ttype: str, amount: int, balance_after: int, details: str = "") -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO transaction_log (user_id, type, amount, balance_after, details) VALUES (?, ?, ?, ?, ?)",
+                (user_id, ttype, amount, balance_after, details or ""),
+            )
+            await db.commit()
+
+    async def get_transaction_history(self, user_id: int, limit: int = 20) -> list[dict[str, Any]]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT type, amount, balance_after, details, created_at FROM transaction_log WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            {"type": r[0], "amount": r[1], "balance_after": r[2], "details": r[3], "created_at": r[4]}
+            for r in rows
+        ]
 
     @staticmethod
     def safe_json_load(raw: str | None) -> dict[str, Any] | list[Any]:
